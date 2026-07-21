@@ -485,3 +485,144 @@ export interface BatteryPathComparison {
   preserve_residual_reduction_mwh: number;
   explanation: string;
 }
+
+export interface ServiceProduct {
+  product_id: string;
+  name: string;
+  direction: "UPWARD" | "DOWNWARD";
+  product_kind: "COMMITTED";
+  description: string;
+}
+
+export interface ServiceCommitment {
+  commitment_id: string;
+  product: ServiceProduct;
+  delivery_period: string;
+  reserved_mw: number;
+  required_duration_hours: number;
+  obligation_status: string;
+  reserved_value: CanonicalDataPoint;
+  duration_value: CanonicalDataPoint;
+}
+
+export interface OptionalityAssumption {
+  key: string;
+  label: string;
+  value: number;
+  unit: string;
+  description: string;
+  value_point: CanonicalDataPoint;
+}
+
+export interface BMOptionalityEstimate {
+  acceptance_probability: number;
+  expected_activation_mwh: number;
+  expected_margin_gbp_per_mwh: number;
+  gross_expected_value_gbp: number;
+  non_delivery_risk_penalty_gbp: number;
+  activation_opportunity_cost_gbp: number;
+  expected_value_gbp: number;
+  expected_activation_value: CanonicalDataPoint;
+  gross_expected_value: CanonicalDataPoint;
+  non_delivery_risk_penalty_value: CanonicalDataPoint;
+  activation_opportunity_cost_value: CanonicalDataPoint;
+  expected_value: CanonicalDataPoint;
+  optional_not_guaranteed: boolean;
+}
+
+export interface AncillaryServiceEstimate {
+  availability_value_gbp: number;
+  expected_activation_value_gbp: number;
+  non_delivery_risk_penalty_gbp: number;
+  expected_service_value_gbp: number;
+  availability_value: CanonicalDataPoint;
+  expected_activation_value: CanonicalDataPoint;
+  non_delivery_risk_penalty_value: CanonicalDataPoint;
+  expected_service_value: CanonicalDataPoint;
+}
+
+export interface OptionalityViolation {
+  code: string;
+  message: string;
+  severity: string;
+  delivery_period: string | null;
+  direction: string | null;
+  observed_value: CanonicalDataPoint | null;
+  required_value: CanonicalDataPoint | null;
+}
+
+export interface OptionalityPeriodDiagnostic {
+  settlement_period: number;
+  delivery_period: string;
+  delivery_start: string;
+  delivery_end: string;
+  risk_rank: number;
+  starting_soc_mwh: number;
+  ending_soc_mwh: number;
+  starting_soc_value: CanonicalDataPoint;
+  ending_soc_value: CanonicalDataPoint;
+  upward_power_available_before_mw: number;
+  downward_power_available_before_mw: number;
+  upward_power_available_after_mw: number;
+  downward_power_available_after_mw: number;
+  upward_power_available_before_value: CanonicalDataPoint;
+  downward_power_available_before_value: CanonicalDataPoint;
+  upward_power_available_after_value: CanonicalDataPoint;
+  downward_power_available_after_value: CanonicalDataPoint;
+  upward_duration_available_hours: number;
+  downward_duration_available_hours: number;
+  upward_duration_available_value: CanonicalDataPoint;
+  downward_duration_available_value: CanonicalDataPoint;
+  committed_upward_mw: number;
+  committed_downward_mw: number;
+  optional_upward_before_mw: number;
+  optional_downward_before_mw: number;
+  optional_upward_after_mw: number;
+  optional_downward_after_mw: number;
+  optional_upward_after_value: CanonicalDataPoint;
+  optional_downward_after_value: CanonicalDataPoint;
+  commitment_coverage_ratio: number;
+  commitment_coverage_value: CanonicalDataPoint;
+  bm_estimate: BMOptionalityEstimate;
+  service_estimate: AncillaryServiceEstimate;
+  optionality_value_before_gbp: number;
+  optionality_value_after_gbp: number;
+  optionality_lost_gbp: number;
+  optionality_value_before_value: CanonicalDataPoint;
+  optionality_value_after_value: CanonicalDataPoint;
+  optionality_lost_value: CanonicalDataPoint;
+  commitment_at_risk: boolean;
+  violations: OptionalityViolation[];
+  warnings: string[];
+}
+
+export interface OptionalityPathImpact {
+  path_name: "NO_ACTION" | "P50_COVERAGE" | "PRESERVE_FLEXIBILITY" | "CUSTOM";
+  path_label: string;
+  diagnostic_only: boolean;
+  optionality_value_before_gbp: number;
+  optionality_value_after_gbp: number;
+  optionality_lost_gbp: number;
+  optionality_value_before_value: CanonicalDataPoint | null;
+  optionality_value_after_value: CanonicalDataPoint | null;
+  optionality_lost_value: CanonicalDataPoint | null;
+  commitments_at_risk: number;
+  worst_affected_period: string | null;
+  periods: OptionalityPeriodDiagnostic[];
+  violations: OptionalityViolation[];
+  explanation: string;
+}
+
+export interface OptionalitySnapshot {
+  optionality_snapshot_id: string;
+  cockpit_snapshot_id: string;
+  as_of: string;
+  source_mode: SourceMode;
+  quality: Quality;
+  readiness: PositionReadiness;
+  commitments: ServiceCommitment[];
+  assumptions: OptionalityAssumption[];
+  path_impacts: OptionalityPathImpact[];
+  optional_not_guaranteed: boolean;
+  warnings: string[];
+}

@@ -1,7 +1,7 @@
 [project]
 name = "intraday-power-cockpit"
-version = "0.5.0"
-description = "Lineage-first position, liquidity and sequential battery-path diagnostics for a UK intraday power cockpit"
+version = "0.6.0"
+description = "Lineage-first position, battery-path and BM/ancillary optionality diagnostics for a UK intraday power cockpit"
 requires-python = ">=3.12"
 dependencies = [
   "fastapi>=0.116,<1",

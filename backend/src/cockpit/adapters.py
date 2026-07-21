@@ -425,7 +425,11 @@ class SampleServiceAdapter(FeedAdapter):
     freshness_sla_seconds = 3600
 
     async def fetch(self, now: datetime) -> RawFeedResult:
-        return RawFeedResult(rows=[{"upward_reserved_mw": 8.0, "downward_reserved_mw": 5.0}], retrieved_at=now)
+        return RawFeedResult(rows=[{
+            "upward_reserved_mw": 8.0,
+            "downward_reserved_mw": 5.0,
+            "required_duration_hours": 1.0,
+        }], retrieved_at=now)
 
     def normalise(self, result: RawFeedResult) -> list[NormalisedValue]:
         row = result.rows[0]
@@ -433,13 +437,15 @@ class SampleServiceAdapter(FeedAdapter):
         for metric, field_name in (
             ("upward_service_commitment", "upward_reserved_mw"),
             ("downward_service_commitment", "downward_reserved_mw"),
+            ("service_required_duration", "required_duration_hours"),
         ):
             value = float(row[field_name])
+            unit = "h" if metric == "service_required_duration" else "MW"
             values.append(
                 NormalisedValue(
                     metric=metric,
                     value=value,
-                    unit="MW",
+                    unit=unit,
                     raw_field_name=field_name,
                     published_at=result.retrieved_at,
                     transformations=["sample commitment row", "mapped direction to canonical metric"],
@@ -447,6 +453,76 @@ class SampleServiceAdapter(FeedAdapter):
                     warnings=["Sample service commitment: not connected to a live contract source."],
                 )
             )
+        return values
+
+
+class SampleOptionalityAssumptionsAdapter(FeedAdapter):
+    feed_id = "optionality_assumptions_sample"
+    feed_name = "BM and ancillary optionality assumptions"
+    description = "Explicit sample probabilities, margins, fees and non-delivery penalties."
+    source_mode = SourceMode.SAMPLE
+    semantic_kind = SemanticKind.ASSUMPTION
+    cadence_seconds = 1800
+    freshness_sla_seconds = 3600
+
+    async def fetch(self, now: datetime) -> RawFeedResult:
+        return RawFeedResult(rows=[{
+            "bm_acceptance_probability": 0.35,
+            "bm_expected_activation_duration_hours": 0.25,
+            "bm_expected_margin_gbp_per_mwh": 78.0,
+            "bm_non_delivery_penalty_gbp_per_mwh": 140.0,
+            "service_availability_fee_gbp_per_mw_h": 6.5,
+            "service_activation_probability": 0.18,
+            "service_expected_activation_duration_hours": 0.25,
+            "service_expected_margin_gbp_per_mwh": 52.0,
+            "service_non_delivery_penalty_gbp_per_mwh": 175.0,
+        }], retrieved_at=now)
+
+    def normalise(self, result: RawFeedResult) -> list[NormalisedValue]:
+        row = result.rows[0]
+        definitions = (
+            ("bm_acceptance_probability", "probability", lambda value: 0 <= value <= 1),
+            ("bm_expected_activation_duration", "h", lambda value: value > 0),
+            ("bm_expected_margin", "GBP/MWh", lambda value: value >= 0),
+            ("bm_non_delivery_penalty", "GBP/MWh", lambda value: value >= 0),
+            ("service_availability_fee", "GBP/MW/h", lambda value: value >= 0),
+            ("service_activation_probability", "probability", lambda value: 0 <= value <= 1),
+            ("service_expected_activation_duration", "h", lambda value: value > 0),
+            ("service_expected_margin", "GBP/MWh", lambda value: value >= 0),
+            ("service_non_delivery_penalty", "GBP/MWh", lambda value: value >= 0),
+        )
+        field_names = {
+            "bm_expected_activation_duration": "bm_expected_activation_duration_hours",
+            "bm_expected_margin": "bm_expected_margin_gbp_per_mwh",
+            "bm_non_delivery_penalty": "bm_non_delivery_penalty_gbp_per_mwh",
+            "service_availability_fee": "service_availability_fee_gbp_per_mw_h",
+            "service_expected_activation_duration": "service_expected_activation_duration_hours",
+            "service_expected_margin": "service_expected_margin_gbp_per_mwh",
+            "service_non_delivery_penalty": "service_non_delivery_penalty_gbp_per_mwh",
+        }
+        values: list[NormalisedValue] = []
+        for metric, unit, valid in definitions:
+            field_name = field_names.get(metric, metric)
+            value = float(row[field_name])
+            values.append(NormalisedValue(
+                metric=metric,
+                value=value,
+                unit=unit,
+                raw_field_name=field_name,
+                published_at=result.retrieved_at,
+                transformations=[
+                    "sample optionality assumption row",
+                    "mapped probability-weighted valuation input to canonical metric",
+                ],
+                checks=[ValidationCheck(
+                    name="valid_assumption",
+                    passed=valid(value),
+                    detail="probabilities are in [0,1]; durations are positive; monetary inputs are non-negative",
+                )],
+                warnings=[
+                    "Sample optionality assumption: BM and service value is uncertain and not guaranteed revenue."
+                ],
+            ))
         return values
 
 
@@ -612,6 +688,7 @@ def adapters() -> list[FeedAdapter]:
         UnconfiguredMarketAdapter(),
         SampleMarketOrderBookAdapter(),
         SampleServiceAdapter(),
+        SampleOptionalityAssumptionsAdapter(),
         ExplicitSyntheticAdapter(),
     ]
 

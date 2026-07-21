@@ -91,6 +91,7 @@ class DataFlowPipeline:
             "battery_telemetry_sample",
             "battery_config_sample",
             "service_commitments_sample",
+            "optionality_assumptions_sample",
             "market_intraday",
             "market_order_book_sample",
         ):

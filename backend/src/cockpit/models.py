@@ -575,3 +575,151 @@ class BatteryPathComparison(BaseModel):
     p50_residual_reduction_mwh: float
     preserve_residual_reduction_mwh: float
     explanation: str
+
+
+class ServiceProduct(BaseModel):
+    product_id: str
+    name: str
+    direction: str
+    product_kind: str
+    description: str
+
+
+class ServiceCommitment(BaseModel):
+    commitment_id: str
+    product: ServiceProduct
+    delivery_period: str
+    reserved_mw: float
+    required_duration_hours: float
+    obligation_status: str
+    reserved_value: CanonicalDataPoint
+    duration_value: CanonicalDataPoint
+
+
+class OptionalityAssumption(BaseModel):
+    key: str
+    label: str
+    value: float
+    unit: str
+    description: str
+    value_point: CanonicalDataPoint
+
+
+class BMOptionalityEstimate(BaseModel):
+    acceptance_probability: float
+    expected_activation_mwh: float
+    expected_margin_gbp_per_mwh: float
+    gross_expected_value_gbp: float
+    non_delivery_risk_penalty_gbp: float
+    activation_opportunity_cost_gbp: float
+    expected_value_gbp: float
+    expected_activation_value: CanonicalDataPoint
+    gross_expected_value: CanonicalDataPoint
+    non_delivery_risk_penalty_value: CanonicalDataPoint
+    activation_opportunity_cost_value: CanonicalDataPoint
+    expected_value: CanonicalDataPoint
+    optional_not_guaranteed: bool = True
+
+
+class AncillaryServiceEstimate(BaseModel):
+    availability_value_gbp: float
+    expected_activation_value_gbp: float
+    non_delivery_risk_penalty_gbp: float
+    expected_service_value_gbp: float
+    availability_value: CanonicalDataPoint
+    expected_activation_value: CanonicalDataPoint
+    non_delivery_risk_penalty_value: CanonicalDataPoint
+    expected_service_value: CanonicalDataPoint
+
+
+class OptionalityViolation(BaseModel):
+    code: str
+    message: str
+    severity: str = "WARNING"
+    delivery_period: str | None = None
+    direction: str | None = None
+    observed_value: CanonicalDataPoint | None = None
+    required_value: CanonicalDataPoint | None = None
+
+
+class OptionalityPeriodDiagnostic(BaseModel):
+    settlement_period: int
+    delivery_period: str
+    delivery_start: datetime
+    delivery_end: datetime
+    risk_rank: int = 0
+    starting_soc_mwh: float
+    ending_soc_mwh: float
+    starting_soc_value: CanonicalDataPoint
+    ending_soc_value: CanonicalDataPoint
+    upward_power_available_before_mw: float
+    downward_power_available_before_mw: float
+    upward_power_available_after_mw: float
+    downward_power_available_after_mw: float
+    upward_power_available_before_value: CanonicalDataPoint
+    downward_power_available_before_value: CanonicalDataPoint
+    upward_power_available_after_value: CanonicalDataPoint
+    downward_power_available_after_value: CanonicalDataPoint
+    upward_duration_available_hours: float
+    downward_duration_available_hours: float
+    upward_duration_available_value: CanonicalDataPoint
+    downward_duration_available_value: CanonicalDataPoint
+    committed_upward_mw: float
+    committed_downward_mw: float
+    optional_upward_before_mw: float
+    optional_downward_before_mw: float
+    optional_upward_after_mw: float
+    optional_downward_after_mw: float
+    optional_upward_after_value: CanonicalDataPoint
+    optional_downward_after_value: CanonicalDataPoint
+    commitment_coverage_ratio: float
+    commitment_coverage_value: CanonicalDataPoint
+    bm_estimate: BMOptionalityEstimate
+    service_estimate: AncillaryServiceEstimate
+    optionality_value_before_gbp: float
+    optionality_value_after_gbp: float
+    optionality_lost_gbp: float
+    optionality_value_before_value: CanonicalDataPoint
+    optionality_value_after_value: CanonicalDataPoint
+    optionality_lost_value: CanonicalDataPoint
+    commitment_at_risk: bool
+    violations: list[OptionalityViolation] = Field(default_factory=list)
+    warnings: list[str] = Field(default_factory=list)
+
+
+class OptionalityPathImpact(BaseModel):
+    path_name: str
+    path_label: str
+    diagnostic_only: bool = True
+    optionality_value_before_gbp: float
+    optionality_value_after_gbp: float
+    optionality_lost_gbp: float
+    optionality_value_before_value: CanonicalDataPoint | None = None
+    optionality_value_after_value: CanonicalDataPoint | None = None
+    optionality_lost_value: CanonicalDataPoint | None = None
+    commitments_at_risk: int
+    worst_affected_period: str | None = None
+    periods: list[OptionalityPeriodDiagnostic] = Field(default_factory=list)
+    violations: list[OptionalityViolation] = Field(default_factory=list)
+    explanation: str
+
+
+class OptionalityReadiness(BaseModel):
+    status: SnapshotStatus
+    calculation_allowed: bool
+    trustworthy_for_live_trading: bool
+    reasons: list[str] = Field(default_factory=list)
+
+
+class OptionalitySnapshot(BaseModel):
+    optionality_snapshot_id: str
+    cockpit_snapshot_id: str
+    as_of: datetime
+    source_mode: SourceMode
+    quality: Quality
+    readiness: OptionalityReadiness
+    commitments: list[ServiceCommitment] = Field(default_factory=list)
+    assumptions: list[OptionalityAssumption] = Field(default_factory=list)
+    path_impacts: list[OptionalityPathImpact] = Field(default_factory=list)
+    optional_not_guaranteed: bool = True
+    warnings: list[str] = Field(default_factory=list)

@@ -67,6 +67,7 @@ export function ForecastPositionPage() {
           <a href="/market-liquidity">Market &amp; liquidity</a>
           <a href="/battery-flexibility">Battery flexibility</a>
           <a href="/battery-path">Battery path</a>
+          <a href="/optionality">Optionality</a>
           <span>Optimisation</span><span>Actions</span>
         </nav>
         <ConnectionStatus error={Boolean(error)} lastPoll={lastLoaded} />

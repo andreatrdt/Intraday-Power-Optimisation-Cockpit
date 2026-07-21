@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Badge, LineageDrawer } from "./App";
 import { loadBatteryPathComparison, loadLineage, simulateBatteryPath } from "./api";
 import { ConnectionStatus } from "./ConnectionStatus";
@@ -15,6 +15,7 @@ export function BatteryPathPage() {
   const [lineage, setLineage] = useState<LineageResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [lastPoll, setLastPoll] = useState<Date | null>(null);
+  const customRequestVersion = useRef(0);
 
   const reload = useCallback(async () => {
     try {
@@ -30,11 +31,19 @@ export function BatteryPathPage() {
 
   useEffect(() => { void reload(); }, [reload]);
   useEffect(() => {
+    const requestVersion = ++customRequestVersion.current;
     if (selected !== "CUSTOM" || customActions.length === 0) return;
     const timer = window.setTimeout(() => {
       void simulateBatteryPath(customActions)
-        .then((simulation) => { setCustom(simulation); setLastPoll(new Date()); setError(null); })
-        .catch((cause) => setError(cause instanceof Error ? cause.message : "Custom simulation failed"));
+        .then((simulation) => {
+          if (requestVersion !== customRequestVersion.current) return;
+          setCustom(simulation); setLastPoll(new Date()); setError(null);
+        })
+        .catch((cause) => {
+          if (requestVersion === customRequestVersion.current) {
+            setError(cause instanceof Error ? cause.message : "Custom simulation failed");
+          }
+        });
     }, 250);
     return () => window.clearTimeout(timer);
   }, [customActions, selected]);
@@ -61,7 +70,7 @@ export function BatteryPathPage() {
   return <div className="app-shell">
     <header className="topbar">
       <div className="brand-lockup"><div className="brand-mark">IP</div><div><p className="eyebrow">UK INTRADAY POWER</p><h1>Battery Path</h1></div></div>
-      <nav><a href="/data-flow">Data flow</a><a href="/forecast-position">Forecast &amp; position</a><a href="/market-liquidity">Market &amp; liquidity</a><a href="/battery-flexibility">Battery flexibility</a><a className="active" href="/battery-path">Battery path</a><span>Optimisation</span><span>Actions</span></nav>
+      <nav><a href="/data-flow">Data flow</a><a href="/forecast-position">Forecast &amp; position</a><a href="/market-liquidity">Market &amp; liquidity</a><a href="/battery-flexibility">Battery flexibility</a><a className="active" href="/battery-path">Battery path</a><a href="/optionality">Optionality</a><span>Optimisation</span><span>Actions</span></nav>
       <ConnectionStatus error={Boolean(error)} lastPoll={lastPoll} />
     </header>
     <main>
@@ -85,7 +94,7 @@ export function BatteryPathPage() {
 }
 
 function Readiness({ simulation }: { simulation: BatteryPathSimulation }) {
-  return <div className="fp-readiness panel"><div><span>Path readiness</span><strong className={`readiness ${simulation.readiness.status.toLowerCase()}`}>{simulation.readiness.status}</strong></div><dl><dt>Input calculation</dt><dd>{simulation.readiness.calculation_allowed ? "Allowed" : "Blocked"}</dd><dt>Candidate path</dt><dd className={simulation.valid ? "long" : "short"}>{simulation.valid ? "VALID" : "VIOLATIONS"}</dd></dl></div>;
+  return <div className="fp-readiness panel"><div><span>Path readiness</span><strong className={`readiness ${simulation.readiness.status.toLowerCase()}`}>{simulation.readiness.status}</strong></div><dl><dt>Input calculation</dt><dd>{simulation.readiness.calculation_allowed ? "Allowed" : "Blocked"}</dd><dt>Live-control trust</dt><dd>{simulation.readiness.trustworthy_for_live_trading ? "Yes" : "No"}</dd><dt>Candidate path</dt><dd className={simulation.valid ? "long" : "short"}>{simulation.valid ? "VALID" : "VIOLATIONS"}</dd></dl><div className="path-readiness-reasons">{simulation.readiness.reasons.map((reason) => <p key={reason}>{reason}</p>)}</div></div>;
 }
 
 function PathSelector({ selected, onSelect, simulation }: { selected: PathKind; onSelect: (path: PathKind) => void; simulation: BatteryPathSimulation }) {
@@ -124,14 +133,14 @@ function PathComparison({ comparison, selected, onValue }: { comparison: Battery
 
 function PathTable({ simulation, custom, actions, onEdit, onValue }: { simulation: BatteryPathSimulation; custom: boolean; actions: BatteryPathPeriodAction[]; onEdit: (period: string, field: "charge_mw" | "discharge_mw", value: number) => void; onValue: (point: CanonicalDataPoint) => void }) {
   const actionMap = Object.fromEntries(actions.map((action) => [action.delivery_period, action]));
-  return <div className="table-wrap panel path-table"><table><thead><tr><th>Period</th><th>Start SoC</th><th>Charge MW / MWh</th><th>Discharge MW / MWh</th><th>End SoC</th><th>P10 before → after</th><th>P50 before → after</th><th>P90 before → after</th><th>Up / down headroom</th><th>Future max C / D</th><th>Constraints</th></tr></thead><tbody>{simulation.periods.map((period) => <PathRow key={period.delivery_period} period={period} custom={custom} action={actionMap[period.delivery_period]} onEdit={onEdit} onValue={onValue} />)}</tbody></table></div>;
+  return <div className="table-wrap panel path-table"><table><thead><tr><th>Period</th><th>Start SoC</th><th>Charge MW / MWh</th><th>Discharge MW / MWh</th><th>End SoC</th><th>P10 before → after</th><th>P50 before → after</th><th>P90 before → after</th><th>Up / down headroom</th><th>Reserve duration U / D</th><th>Available C / D</th><th>Constraints</th></tr></thead><tbody>{simulation.periods.map((period) => <PathRow key={period.delivery_period} period={period} custom={custom} action={actionMap[period.delivery_period]} onEdit={onEdit} onValue={onValue} />)}</tbody></table></div>;
 }
 
 function PathRow({ period, custom, action, onEdit, onValue }: { period: BatteryPathPeriodResult; custom: boolean; action?: BatteryPathPeriodAction; onEdit: (period: string, field: "charge_mw" | "discharge_mw", value: number) => void; onValue: (point: CanonicalDataPoint) => void }) {
   const before = Object.fromEntries(period.exposure_before.map((item) => [item.scenario, item])); const after = Object.fromEntries(period.residual_exposure.map((item) => [item.scenario, item]));
   const chargeMw = custom ? action?.charge_mw ?? period.charge_mw : period.charge_mw;
   const dischargeMw = custom ? action?.discharge_mw ?? period.discharge_mw : period.discharge_mw;
-  return <tr className={period.violations.length ? "path-violation-row" : ""}><td><strong>SP{period.settlement_period}</strong><small>{formatUkMarketTime(period.delivery_start)}–{formatUkMarketTime(period.delivery_end)} UK time</small></td><td><GridValue point={period.starting_soc_value} onValue={onValue} /></td><td><ActionCell custom={custom} value={chargeMw} power={period.charge_power_value} energy={period.charge_energy_value} field="charge_mw" period={period.delivery_period} onEdit={onEdit} onValue={onValue} /></td><td><ActionCell custom={custom} value={dischargeMw} power={period.discharge_power_value} energy={period.discharge_energy_value} field="discharge_mw" period={period.delivery_period} onEdit={onEdit} onValue={onValue} /></td><td><GridValue point={period.ending_soc_value} onValue={onValue} /></td>{(["P10", "P50", "P90"] as const).map((scenario) => <td key={scenario}><ExposurePair before={before[scenario]} after={after[scenario]} onValue={onValue} /></td>)}<td><div className="path-value-pair"><GridValue point={period.upward_power_headroom_value} onValue={onValue} /><GridValue point={period.downward_power_headroom_value} onValue={onValue} /></div></td><td><div className="path-value-pair"><GridValue point={period.max_feasible_charge_value} onValue={onValue} /><GridValue point={period.max_feasible_discharge_value} onValue={onValue} /></div></td><td><ConstraintCell period={period} onValue={onValue} /></td></tr>;
+  return <tr className={period.violations.length ? "path-violation-row" : ""}><td><strong>SP{period.settlement_period}</strong><small>{formatUkMarketTime(period.delivery_start)}–{formatUkMarketTime(period.delivery_end)} UK time</small></td><td><GridValue point={period.starting_soc_value} onValue={onValue} /></td><td><ActionCell custom={custom} value={chargeMw} power={period.charge_power_value} energy={period.charge_energy_value} field="charge_mw" period={period.delivery_period} onEdit={onEdit} onValue={onValue} /></td><td><ActionCell custom={custom} value={dischargeMw} power={period.discharge_power_value} energy={period.discharge_energy_value} field="discharge_mw" period={period.delivery_period} onEdit={onEdit} onValue={onValue} /></td><td><GridValue point={period.ending_soc_value} onValue={onValue} /></td>{(["P10", "P50", "P90"] as const).map((scenario) => <td key={scenario}><ExposurePair before={before[scenario]} after={after[scenario]} onValue={onValue} /></td>)}<td><div className="path-value-pair"><GridValue point={period.upward_power_headroom_value} onValue={onValue} /><GridValue point={period.downward_power_headroom_value} onValue={onValue} /></div></td><td><div className="path-value-pair"><GridValue point={period.upward_energy_duration_value} onValue={onValue} /><GridValue point={period.downward_energy_duration_value} onValue={onValue} /></div></td><td><div className="path-value-pair"><GridValue point={period.max_feasible_charge_value} onValue={onValue} /><GridValue point={period.max_feasible_discharge_value} onValue={onValue} /></div></td><td><ConstraintCell period={period} onValue={onValue} /></td></tr>;
 }
 
 function ActionCell({ custom, value, power, energy, field, period, onEdit, onValue }: { custom: boolean; value: number; power: CanonicalDataPoint; energy: CanonicalDataPoint; field: "charge_mw" | "discharge_mw"; period: string; onEdit: (period: string, field: "charge_mw" | "discharge_mw", value: number) => void; onValue: (point: CanonicalDataPoint) => void }) {

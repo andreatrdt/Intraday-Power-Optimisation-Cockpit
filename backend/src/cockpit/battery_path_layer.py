@@ -67,8 +67,15 @@ def simulate_battery_path(
         *(physical.get(metric) for metric in CONFIG_METRICS),
     ]
     valid_physical = [point for point in physical_inputs if point is not None]
-    mode = combined_source_mode(valid_physical) if valid_physical else SourceMode.ERROR
-    quality = combined_quality(valid_physical) if valid_physical else Quality.MISSING
+    position_inputs = [
+        point
+        for period in positions.periods
+        for exposure in period.exposures
+        for point in (exposure.generation_value, exposure.exposure_value)
+    ]
+    labelled_inputs = [*valid_physical, *position_inputs]
+    mode = combined_source_mode(labelled_inputs) if labelled_inputs else SourceMode.ERROR
+    quality = combined_quality(labelled_inputs) if labelled_inputs else Quality.MISSING
     path_kind = path_input.path_name.upper()
     path_label = PATH_LABELS.get(path_kind, path_input.path_name.replace("_", " ").title())
     if not readiness.calculation_allowed:
@@ -500,18 +507,32 @@ def _readiness(battery, positions):
 
 
 def _explanation(label, periods, terminal_shortfall, has_violations):
-    active = next((period for period in periods if period.charge_mwh > 0.0001 or period.discharge_mwh > 0.0001), None)
+    active_index = next((
+        index for index, period in enumerate(periods)
+        if period.charge_mwh > 0.0001 or period.discharge_mwh > 0.0001
+    ), None)
+    active = periods[active_index] if active_index is not None else None
     if active is None:
         action_text = "The path takes no battery action, so SoC is preserved across all displayed periods."
+        consequence_text = "Future upward and downward energy duration therefore remain unchanged."
     elif active.charge_mwh > 0:
         action_text = (
             f"In {label}, the battery charges {active.charge_mwh:.1f} MWh in {active.delivery_period}, "
             f"moving SoC from {active.starting_soc_mwh:.1f} to {active.ending_soc_mwh:.1f} MWh after efficiency."
         )
+        consequence_text = _future_flexibility_text(periods, active_index, "downward")
     else:
         action_text = (
             f"In {label}, the battery discharges {active.discharge_mwh:.1f} MWh in {active.delivery_period}, "
             f"moving SoC from {active.starting_soc_mwh:.1f} to {active.ending_soc_mwh:.1f} MWh after efficiency."
+        )
+        consequence_text = _future_flexibility_text(periods, active_index, "upward")
+    if active is not None:
+        p50_before = next(item for item in active.exposure_before if item.scenario == "P50")
+        p50_after = next(item for item in active.residual_exposure if item.scenario == "P50")
+        action_text += (
+            f" P50 residual exposure changes from {p50_before.residual_position_mwh:+.1f} "
+            f"to {p50_after.residual_position_mwh:+.1f} MWh."
         )
     constraint_text = (
         "One or more hard constraints are violated; inspect the flagged periods before treating the path as feasible."
@@ -522,7 +543,25 @@ def _explanation(label, periods, terminal_shortfall, has_violations):
         f"The terminal SoC target is short by {terminal_shortfall:.1f} MWh."
         if terminal_shortfall > 0.05 else "The terminal SoC target is met."
     )
-    return f"{action_text} {constraint_text} {terminal_text} This is a diagnostic path, not a recommendation."
+    return (
+        f"{action_text} {consequence_text} {constraint_text} {terminal_text} "
+        "This is a diagnostic path, not a recommendation."
+    )
+
+
+def _future_flexibility_text(periods, active_index, direction_name):
+    if active_index is None or active_index + 1 >= len(periods):
+        return "The action occurs in the final displayed period, so no later-period flexibility is shown."
+    following = periods[active_index + 1]
+    duration = (
+        following.upward_energy_duration_hours
+        if direction_name == "upward"
+        else following.downward_energy_duration_hours
+    )
+    return (
+        f"The next period starts at {following.starting_soc_mwh:.1f} MWh, with {duration:.1f} h of "
+        f"{direction_name} reserved-energy duration available."
+    )
 
 
 def _empty_simulation(snapshot, path_kind, path_label, mode, quality, readiness):

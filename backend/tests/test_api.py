@@ -1,7 +1,7 @@
 def test_data_flow_endpoints_are_inspectable(client) -> None:
     feeds = client.get("/api/v1/data-sources/health")
     assert feeds.status_code == 200
-    assert len(feeds.json()["feeds"]) == 10
+    assert len(feeds.json()["feeds"]) == 11
 
     snapshot = client.get("/api/v1/snapshots/current")
     assert snapshot.status_code == 200
@@ -100,3 +100,31 @@ def test_battery_path_comparison_custom_simulation_and_lineage(client) -> None:
     lineage = client.get(f"/api/v1/lineage/{value_id}")
     assert lineage.status_code == 200
     assert lineage.json()["value"]["lineage"]["source_feed"] == "battery_path_simulation"
+
+
+def test_optionality_standard_custom_and_lineage_endpoints(client) -> None:
+    response = client.get("/api/v1/optionality")
+    assert response.status_code == 200
+    optionality = response.json()["optionality"]
+    assert optionality["readiness"]["status"] == "DEGRADED"
+    assert optionality["optional_not_guaranteed"] is True
+    assert {item["path_name"] for item in optionality["path_impacts"]} == {
+        "NO_ACTION", "P50_COVERAGE", "PRESERVE_FLEXIBILITY"
+    }
+    periods = optionality["path_impacts"][0]["periods"]
+    custom_response = client.post("/api/v1/optionality/simulate", json={
+        "path_name": "CUSTOM",
+        "actions": [{
+            "delivery_period": periods[0]["delivery_period"],
+            "charge_mw": 10,
+            "discharge_mw": 0,
+        }],
+    })
+    assert custom_response.status_code == 200
+    custom = custom_response.json()["optionality"]
+    custom_impact = next(item for item in custom["path_impacts"] if item["path_name"] == "CUSTOM")
+    assert custom_impact["periods"][1]["starting_soc_mwh"] > periods[1]["starting_soc_mwh"]
+    value_id = custom_impact["periods"][0]["optionality_lost_value"]["value_id"]
+    lineage = client.get(f"/api/v1/lineage/{value_id}")
+    assert lineage.status_code == 200
+    assert lineage.json()["value"]["lineage"]["source_feed"] == "optionality_diagnostic"

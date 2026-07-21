@@ -12,6 +12,7 @@ from cockpit.battery_path_layer import build_standard_path_comparison, simulate_
 from cockpit.forecast_layer import build_forecast_layer
 from cockpit.market_layer import build_market_snapshot
 from cockpit.models import BatteryPathInput, RefreshRequest
+from cockpit.optionality_layer import build_optionality_snapshot
 from cockpit.pipeline import PIPELINE
 from cockpit.position_layer import build_forecast_position
 
@@ -24,8 +25,8 @@ async def lifespan(_: FastAPI):
 
 app = FastAPI(
     title="Intraday Power Optimisation Cockpit",
-    version="0.5.0",
-    description="Observable data flow, position, liquidity and sequential battery-path diagnostics",
+    version="0.6.0",
+    description="Observable position, liquidity, battery-path and optionality diagnostics",
     lifespan=lifespan,
 )
 app.add_middleware(
@@ -40,7 +41,7 @@ app.add_middleware(
 
 @app.get("/api/health", tags=["health"])
 def health() -> dict:
-    return {"status": "ok", "milestone": "1E-sequential-battery-path-what-if"}
+    return {"status": "ok", "milestone": "1F-bm-ancillary-optionality-diagnostics"}
 
 
 @app.get("/api/v1/data-sources/health", tags=["data-flow"])
@@ -321,6 +322,25 @@ def simulate_custom_battery_path(path: BatteryPathInput) -> dict:
     result = simulate_battery_path(PIPELINE.current_snapshot, custom)
     _register_path_values(result.derived_values)
     return {"simulation": result.simulation}
+
+
+def _optionality_result(path: BatteryPathInput | None = None):
+    if PIPELINE.current_snapshot is None:
+        raise HTTPException(status_code=503, detail="No cockpit snapshot has been built")
+    result = build_optionality_snapshot(PIPELINE.current_snapshot, path)
+    _register_path_values(result.derived_values)
+    return result
+
+
+@app.get("/api/v1/optionality", tags=["optionality"])
+def optionality() -> dict:
+    return {"optionality": _optionality_result().snapshot}
+
+
+@app.post("/api/v1/optionality/simulate", tags=["optionality"])
+def simulate_optionality_path(path: BatteryPathInput) -> dict:
+    custom = path.model_copy(update={"path_name": "CUSTOM"})
+    return {"optionality": _optionality_result(custom).snapshot}
 
 
 @app.get("/api/v1/cockpit", tags=["snapshots"])

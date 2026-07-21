@@ -1,6 +1,6 @@
 # Intraday Power Optimisation Cockpit
 
-Milestones 1A through 1E provide visible, inspectable data-flow, Forecast & Position,
+Milestones 1A through 1F provide visible, inspectable data-flow, Forecast & Position,
 Market & Liquidity, Battery Flexibility, and sequential Battery Path vertical slices
 for a future UK intraday power trading cockpit.
 They deliberately do **not** contain a backtester, replay engine,
@@ -28,6 +28,9 @@ The current application shows:
 - per-period path violations, binding constraints, residual scenario exposure and
   terminal-SoC consequences;
 - explicit comparison of no-action, P50-coverage and preserve-flexibility paths.
+- committed-service deliverability and reserved-duration diagnostics by battery path;
+- probability-weighted BM and ancillary optionality estimates, with non-delivery risk,
+  activation opportunity cost and explicit non-guaranteed-value labels.
 
 Live failures are never replaced by synthetic data. Sample and synthetic feeds are
 only loaded through their explicitly named adapters.
@@ -65,7 +68,8 @@ Open <http://localhost:5173/data-flow> or
 <http://localhost:5173/forecast-position> or
 <http://localhost:5173/market-liquidity> or
 <http://localhost:5173/battery-flexibility> or
-<http://localhost:5173/battery-path>.
+<http://localhost:5173/battery-path> or
+<http://localhost:5173/optionality>.
 
 The frontend uses `http://127.0.0.1:8000/api/v1` by default. Override the API root
 with `VITE_API_BASE_URL` when required. The Vite server also includes a local
@@ -84,6 +88,7 @@ with `VITE_API_BASE_URL` when required. The Vite server also includes a local
 | Intraday executable market | Error / unconfigured | Required before optimisation |
 | Sample intraday order book | Sample | Diagnostic execution logic only |
 | Service commitments | Sample | Optional context |
+| BM/service optionality assumptions | Sample | Diagnostic valuation only |
 | Synthetic demo | Synthetic, not loaded | Excluded unless explicitly refreshed |
 
 Consequently, the initial cockpit snapshot is `DEGRADED`, while optimiser readiness
@@ -104,4 +109,5 @@ See [docs/data-flow.md](docs/data-flow.md) for the ingestion pipeline and
 [docs/forecast-position.md](docs/forecast-position.md) for the Milestone 1B
 calculation and readiness rules, [docs/market-liquidity.md](docs/market-liquidity.md)
 for Milestone 1C, and [docs/battery-flexibility.md](docs/battery-flexibility.md)
-for Milestone 1D, and [docs/battery-path.md](docs/battery-path.md) for Milestone 1E.
+for Milestone 1D, [docs/battery-path.md](docs/battery-path.md) for Milestone 1E,
+and [docs/optionality.md](docs/optionality.md) for Milestone 1F.

@@ -137,6 +137,31 @@ async def test_custom_unknown_period_is_invalid() -> None:
 
 
 @pytest.mark.asyncio
+async def test_duplicate_custom_period_actions_are_invalid() -> None:
+    snapshot = await sample_snapshot()
+    first = build_standard_path_comparison(snapshot).comparison.no_action.periods[0].delivery_period
+    result = simulate_battery_path(snapshot, BatteryPathInput(path_name="CUSTOM", actions=[
+        BatteryPathPeriodAction(delivery_period=first, charge_mw=2),
+        BatteryPathPeriodAction(delivery_period=first, discharge_mw=2),
+    ])).simulation
+    assert result.valid is False
+    assert "DUPLICATE_PERIOD_ACTION" in {violation.code for violation in result.violations}
+
+
+@pytest.mark.asyncio
+async def test_missing_soc_blocks_path_calculation() -> None:
+    snapshot = await sample_snapshot()
+    snapshot.values = [point for point in snapshot.values if point.metric != "battery_soc"]
+    result = simulate_battery_path(
+        snapshot, BatteryPathInput(path_name="NO_ACTION")
+    ).simulation
+    assert result.readiness.status == "BLOCKED"
+    assert result.readiness.calculation_allowed is False
+    assert result.readiness.trustworthy_for_live_trading is False
+    assert result.periods == []
+
+
+@pytest.mark.asyncio
 async def test_sample_and_stale_readiness_propagate() -> None:
     snapshot = await sample_snapshot()
     sample = simulate_battery_path(snapshot, BatteryPathInput(path_name="NO_ACTION")).simulation
@@ -146,6 +171,34 @@ async def test_sample_and_stale_readiness_propagate() -> None:
     stale = simulate_battery_path(snapshot, BatteryPathInput(path_name="NO_ACTION")).simulation
     assert stale.readiness.status == "DEGRADED"
     assert any("stale" in reason.lower() for reason in stale.readiness.reasons)
+
+
+@pytest.mark.asyncio
+async def test_path_source_mode_includes_forecast_position_lineage_without_fallback() -> None:
+    snapshot = await sample_snapshot()
+    p50 = next(
+        point for point in snapshot.values
+        if point.metric == "wind_p50" and point.delivery_period is not None
+    )
+    p50.lineage.source_mode = SourceMode.SYNTHETIC
+    result = simulate_battery_path(
+        snapshot, BatteryPathInput(path_name="P50_COVERAGE")
+    ).simulation
+    assert result.source_mode == SourceMode.SYNTHETIC
+    assert result.source_mode != SourceMode.LIVE
+    residual = next(
+        exposure for exposure in result.periods[0].residual_exposure
+        if exposure.scenario == "P50"
+    )
+    assert residual.exposure_value.lineage.source_mode == SourceMode.SYNTHETIC
+
+
+@pytest.mark.asyncio
+async def test_explanation_describes_exposure_and_later_flexibility() -> None:
+    result = build_standard_path_comparison(await sample_snapshot()).comparison.p50_coverage
+    assert "P50 residual exposure changes" in result.explanation
+    assert "The next period starts" in result.explanation
+    assert "reserved-energy duration available" in result.explanation
 
 
 @pytest.mark.asyncio

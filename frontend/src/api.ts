@@ -1,4 +1,4 @@
-import type { BatteryFlexibilitySnapshot, BatteryPathComparison, BatteryPathPeriodAction, BatteryPathSimulation, CockpitSnapshot, DataFlowEvent, FeedHealth, ForecastPositionSnapshot, LineageResponse, MarketSnapshot } from "./types";
+import type { BatteryFlexibilitySnapshot, BatteryPathComparison, BatteryPathPeriodAction, BatteryPathSimulation, CockpitSnapshot, DataFlowEvent, FeedHealth, ForecastPositionSnapshot, LineageResponse, MarketSnapshot, OptionalitySnapshot } from "./types";
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL ?? "http://127.0.0.1:8000/api/v1";
 
@@ -56,4 +56,17 @@ export async function simulateBatteryPath(actions: BatteryPathPeriodAction[]): P
     body: JSON.stringify({ path_name: "CUSTOM", actions }),
   });
   return response.simulation;
+}
+
+export async function loadOptionality(): Promise<OptionalitySnapshot> {
+  const response = await request<{ optionality: OptionalitySnapshot }>("/optionality");
+  return response.optionality;
+}
+
+export async function simulateOptionalityPath(actions: BatteryPathPeriodAction[]): Promise<OptionalitySnapshot> {
+  const response = await request<{ optionality: OptionalitySnapshot }>("/optionality/simulate", {
+    method: "POST",
+    body: JSON.stringify({ path_name: "CUSTOM", actions }),
+  });
+  return response.optionality;
 }
