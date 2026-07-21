@@ -1,7 +1,7 @@
 def test_data_flow_endpoints_are_inspectable(client) -> None:
     feeds = client.get("/api/v1/data-sources/health")
     assert feeds.status_code == 200
-    assert len(feeds.json()["feeds"]) == 9
+    assert len(feeds.json()["feeds"]) == 10
 
     snapshot = client.get("/api/v1/snapshots/current")
     assert snapshot.status_code == 200
@@ -60,3 +60,20 @@ def test_market_liquidity_endpoint_and_wap_lineage(client) -> None:
     current = client.get("/api/v1/markets/current")
     assert current.status_code == 200
     assert len(current.json()["periods"]) == 8
+
+
+def test_battery_flexibility_endpoint_and_lineage(client) -> None:
+    response = client.get("/api/v1/battery-flexibility")
+    assert response.status_code == 200
+    battery = response.json()["battery"]
+    assert battery["source_mode"] == "SAMPLE"
+    assert battery["readiness"]["status"] == "DEGRADED"
+    assert len(battery["periods"]) == 8
+    value_id = battery["periods"][0]["feasibility"]["max_discharge_value"]["value_id"]
+    lineage = client.get(f"/api/v1/lineage/{value_id}")
+    assert lineage.status_code == 200
+    assert lineage.json()["value"]["lineage"]["source_feed"] == "battery_flexibility_calculation"
+
+    current = client.get("/api/v1/batteries/current")
+    assert current.status_code == 200
+    assert current.json()["current_soc"]["unit"] == "MWh"

@@ -7,6 +7,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 
+from cockpit.battery_layer import build_battery_flexibility
 from cockpit.forecast_layer import build_forecast_layer
 from cockpit.market_layer import build_market_snapshot
 from cockpit.models import RefreshRequest
@@ -22,8 +23,8 @@ async def lifespan(_: FastAPI):
 
 app = FastAPI(
     title="Intraday Power Optimisation Cockpit",
-    version="0.3.0",
-    description="Observable data flow, forecast-position and executable-liquidity diagnostics",
+    version="0.4.0",
+    description="Observable data flow, position, liquidity and battery-flexibility diagnostics",
     lifespan=lifespan,
 )
 app.add_middleware(
@@ -38,7 +39,7 @@ app.add_middleware(
 
 @app.get("/api/health", tags=["health"])
 def health() -> dict:
-    return {"status": "ok", "milestone": "1C-intraday-market-liquidity"}
+    return {"status": "ok", "milestone": "1D-battery-flexibility-opportunity-cost"}
 
 
 @app.get("/api/v1/data-sources/health", tags=["data-flow"])
@@ -234,6 +235,51 @@ def current_market() -> dict:
         "levels_considered": market.levels_considered,
         "periods": market.periods,
         "warnings": market.warnings,
+    }
+
+
+def _battery_result(snapshot_id: str | None = None):
+    snapshot = (
+        PIPELINE.snapshots.get(snapshot_id)
+        if snapshot_id is not None
+        else PIPELINE.current_snapshot
+    )
+    if snapshot is None:
+        detail = (
+            f"Unknown snapshot '{snapshot_id}'"
+            if snapshot_id is not None
+            else "No cockpit snapshot has been built"
+        )
+        raise HTTPException(status_code=404 if snapshot_id else 503, detail=detail)
+    result = build_battery_flexibility(snapshot)
+    for point in result.derived_values:
+        PIPELINE.lineage_index[point.value_id] = point
+    return result
+
+
+@app.get("/api/v1/battery-flexibility", tags=["battery-flexibility"])
+def battery_flexibility() -> dict:
+    return {"battery": _battery_result().snapshot}
+
+
+@app.get("/api/v1/battery-flexibility/{snapshot_id}", tags=["battery-flexibility"])
+def battery_flexibility_by_snapshot(snapshot_id: str) -> dict:
+    return {"battery": _battery_result(snapshot_id).snapshot}
+
+
+@app.get("/api/v1/batteries/current", tags=["battery-flexibility"])
+def current_battery() -> dict:
+    battery = _battery_result().snapshot
+    return {
+        "as_of": battery.as_of,
+        "source_mode": battery.source_mode,
+        "quality": battery.quality,
+        "readiness": battery.readiness,
+        "current_soc": battery.current_soc,
+        "limits": battery.limits,
+        "opportunity_cost": battery.opportunity_cost,
+        "periods": battery.periods,
+        "warnings": battery.warnings,
     }
 
 

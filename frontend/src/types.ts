@@ -295,3 +295,94 @@ export interface MarketSnapshot {
   periods: MarketPeriodSnapshot[];
   warnings: string[];
 }
+
+export interface BatteryAssetLimits {
+  e_min: CanonicalDataPoint;
+  e_max: CanonicalDataPoint;
+  charge_power_max: CanonicalDataPoint;
+  discharge_power_max: CanonicalDataPoint;
+  charge_efficiency: CanonicalDataPoint;
+  discharge_efficiency: CanonicalDataPoint;
+  reserve_duration: CanonicalDataPoint;
+}
+
+export interface BatteryOpportunityCost {
+  discharge_cost_gbp_per_mwh: number;
+  charge_cost_gbp_per_mwh: number;
+  discharge_cost_value: CanonicalDataPoint;
+  charge_cost_value: CanonicalDataPoint;
+  degradation_cost: CanonicalDataPoint;
+  terminal_soc_penalty: CanonicalDataPoint;
+  future_flexibility_penalty: CanonicalDataPoint;
+  terminal_soc_target: CanonicalDataPoint;
+  assumptions: string[];
+}
+
+export interface BatteryExposureCoverage {
+  scenario: "P10" | "P50" | "P90";
+  exposure_mwh: number;
+  support_direction: "CHARGE" | "DISCHARGE" | "NONE";
+  maximum_support_mwh: number;
+  covered_mwh: number;
+  residual_after_support_mwh: number;
+  coverage_percent: number;
+  exposure_value: CanonicalDataPoint;
+  covered_value: CanonicalDataPoint;
+  residual_value: CanonicalDataPoint;
+}
+
+export interface BatteryFeasibilityPoint {
+  settlement_period: number;
+  delivery_period: string;
+  delivery_start: string;
+  delivery_end: string;
+  duration_hours: number;
+  current_soc: CanonicalDataPoint;
+  upward_reserved: CanonicalDataPoint;
+  downward_reserved: CanonicalDataPoint;
+  max_charge_mwh: number;
+  max_discharge_mwh: number;
+  upward_power_headroom_mw: number;
+  downward_power_headroom_mw: number;
+  upward_energy_duration_hours: number;
+  downward_space_duration_hours: number;
+  projected_soc_after_max_charge_mwh: number;
+  projected_soc_after_max_discharge_mwh: number;
+  max_charge_value: CanonicalDataPoint;
+  max_discharge_value: CanonicalDataPoint;
+  upward_power_headroom_value: CanonicalDataPoint;
+  downward_power_headroom_value: CanonicalDataPoint;
+  upward_energy_duration_value: CanonicalDataPoint;
+  downward_space_duration_value: CanonicalDataPoint;
+  projected_soc_after_max_charge_value: CanonicalDataPoint;
+  projected_soc_after_max_discharge_value: CanonicalDataPoint;
+  binding_constraints: string[];
+  warnings: string[];
+}
+
+export interface BatteryPeriodSnapshot {
+  settlement_period: number;
+  delivery_period: string;
+  delivery_start: string;
+  delivery_end: string;
+  feasibility: BatteryFeasibilityPoint;
+  coverage: BatteryExposureCoverage[];
+  explanation: string;
+  warnings: string[];
+}
+
+export interface BatteryFlexibilitySnapshot {
+  battery_snapshot_id: string;
+  cockpit_snapshot_id: string;
+  as_of: string;
+  input_hash: string;
+  source_mode: SourceMode;
+  quality: Quality;
+  readiness: PositionReadiness;
+  current_soc: CanonicalDataPoint | null;
+  limits: BatteryAssetLimits | null;
+  opportunity_cost: BatteryOpportunityCost | null;
+  periods: BatteryPeriodSnapshot[];
+  most_useful_periods: string[];
+  warnings: string[];
+}

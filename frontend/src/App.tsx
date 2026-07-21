@@ -83,6 +83,7 @@ export function App() {
           <a className="active" href="/data-flow">Data flow</a>
           <a href="/forecast-position">Forecast &amp; position</a>
           <a href="/market-liquidity">Market &amp; liquidity</a>
+          <a href="/battery-flexibility">Battery flexibility</a>
           <span>Optimisation</span>
           <span>Actions</span>
         </nav>

@@ -1,7 +1,7 @@
 # Intraday Power Optimisation Cockpit
 
-Milestones 1A through 1C provide visible, inspectable data-flow, Forecast & Position,
-and Market & Liquidity vertical slices for a future UK intraday power trading cockpit.
+Milestones 1A through 1D provide visible, inspectable data-flow, Forecast & Position,
+Market & Liquidity, and Battery Flexibility vertical slices for a future UK intraday power trading cockpit.
 They deliberately do **not** contain a backtester, replay engine,
 strategy-performance page, battery co-optimiser, or trade recommendation engine.
 
@@ -20,6 +20,9 @@ The current application shows:
 - period risk ranking, plain-English explanation, and Forecast & Position readiness.
 - explicit sample bid/ask order books, executable WAP, unfilled depth and hedge cashflow;
 - Gate Closure timing, liquidity scoring, and market-specific readiness.
+- current SoC, physical limits, service reservations and deterministic period feasibility;
+- maximum directional exposure coverage, binding constraints and residual exposure;
+- a transparent battery opportunity-cost heuristic with inspectable assumptions.
 
 Live failures are never replaced by synthetic data. Sample and synthetic feeds are
 only loaded through their explicitly named adapters.
@@ -55,7 +58,8 @@ npm run dev
 
 Open <http://localhost:5173/data-flow> or
 <http://localhost:5173/forecast-position> or
-<http://localhost:5173/market-liquidity>.
+<http://localhost:5173/market-liquidity> or
+<http://localhost:5173/battery-flexibility>.
 
 The frontend uses `http://127.0.0.1:8000/api/v1` by default. Override the API root
 with `VITE_API_BASE_URL` when required. The Vite server also includes a local
@@ -70,6 +74,7 @@ with `VITE_API_BASE_URL` when required. The Vite server also includes a local
 | Renewable forecast | Sample | Required cockpit input |
 | Portfolio contracted position | Sample | Required cockpit input |
 | Battery telemetry | Sample | Required cockpit input |
+| Battery operating limits | Sample | Required cockpit input |
 | Intraday executable market | Error / unconfigured | Required before optimisation |
 | Sample intraday order book | Sample | Diagnostic execution logic only |
 | Service commitments | Sample | Optional context |
@@ -91,5 +96,6 @@ npm run build
 
 See [docs/data-flow.md](docs/data-flow.md) for the ingestion pipeline and
 [docs/forecast-position.md](docs/forecast-position.md) for the Milestone 1B
-calculation and readiness rules, and [docs/market-liquidity.md](docs/market-liquidity.md)
-for Milestone 1C.
+calculation and readiness rules, [docs/market-liquidity.md](docs/market-liquidity.md)
+for Milestone 1C, and [docs/battery-flexibility.md](docs/battery-flexibility.md)
+for Milestone 1D.

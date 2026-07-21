@@ -366,3 +366,101 @@ class MarketSnapshot(BaseModel):
     levels_considered: int
     periods: list[MarketPeriodSnapshot] = Field(default_factory=list)
     warnings: list[str] = Field(default_factory=list)
+
+
+class BatteryAssetLimits(BaseModel):
+    e_min: CanonicalDataPoint
+    e_max: CanonicalDataPoint
+    charge_power_max: CanonicalDataPoint
+    discharge_power_max: CanonicalDataPoint
+    charge_efficiency: CanonicalDataPoint
+    discharge_efficiency: CanonicalDataPoint
+    reserve_duration: CanonicalDataPoint
+
+
+class BatteryOpportunityCost(BaseModel):
+    discharge_cost_gbp_per_mwh: float
+    charge_cost_gbp_per_mwh: float
+    discharge_cost_value: CanonicalDataPoint
+    charge_cost_value: CanonicalDataPoint
+    degradation_cost: CanonicalDataPoint
+    terminal_soc_penalty: CanonicalDataPoint
+    future_flexibility_penalty: CanonicalDataPoint
+    terminal_soc_target: CanonicalDataPoint
+    assumptions: list[str] = Field(default_factory=list)
+
+
+class BatteryExposureCoverage(BaseModel):
+    scenario: str
+    exposure_mwh: float
+    support_direction: str
+    maximum_support_mwh: float
+    covered_mwh: float
+    residual_after_support_mwh: float
+    coverage_percent: float
+    exposure_value: CanonicalDataPoint
+    covered_value: CanonicalDataPoint
+    residual_value: CanonicalDataPoint
+
+
+class BatteryFeasibilityPoint(BaseModel):
+    settlement_period: int
+    delivery_period: str
+    delivery_start: datetime
+    delivery_end: datetime
+    duration_hours: float
+    current_soc: CanonicalDataPoint
+    upward_reserved: CanonicalDataPoint
+    downward_reserved: CanonicalDataPoint
+    max_charge_mwh: float
+    max_discharge_mwh: float
+    upward_power_headroom_mw: float
+    downward_power_headroom_mw: float
+    upward_energy_duration_hours: float
+    downward_space_duration_hours: float
+    projected_soc_after_max_charge_mwh: float
+    projected_soc_after_max_discharge_mwh: float
+    max_charge_value: CanonicalDataPoint
+    max_discharge_value: CanonicalDataPoint
+    upward_power_headroom_value: CanonicalDataPoint
+    downward_power_headroom_value: CanonicalDataPoint
+    upward_energy_duration_value: CanonicalDataPoint
+    downward_space_duration_value: CanonicalDataPoint
+    projected_soc_after_max_charge_value: CanonicalDataPoint
+    projected_soc_after_max_discharge_value: CanonicalDataPoint
+    binding_constraints: list[str] = Field(default_factory=list)
+    warnings: list[str] = Field(default_factory=list)
+
+
+class BatteryPeriodSnapshot(BaseModel):
+    settlement_period: int
+    delivery_period: str
+    delivery_start: datetime
+    delivery_end: datetime
+    feasibility: BatteryFeasibilityPoint
+    coverage: list[BatteryExposureCoverage]
+    explanation: str
+    warnings: list[str] = Field(default_factory=list)
+
+
+class BatteryReadiness(BaseModel):
+    status: SnapshotStatus
+    calculation_allowed: bool
+    trustworthy_for_live_trading: bool
+    reasons: list[str] = Field(default_factory=list)
+
+
+class BatteryFlexibilitySnapshot(BaseModel):
+    battery_snapshot_id: str
+    cockpit_snapshot_id: str
+    as_of: datetime
+    input_hash: str
+    source_mode: SourceMode
+    quality: Quality
+    readiness: BatteryReadiness
+    current_soc: CanonicalDataPoint | None = None
+    limits: BatteryAssetLimits | None = None
+    opportunity_cost: BatteryOpportunityCost | None = None
+    periods: list[BatteryPeriodSnapshot] = Field(default_factory=list)
+    most_useful_periods: list[str] = Field(default_factory=list)
+    warnings: list[str] = Field(default_factory=list)

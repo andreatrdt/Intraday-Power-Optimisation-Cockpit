@@ -89,6 +89,7 @@ class DataFlowPipeline:
             "forecast_sample",
             "portfolio_position_sample",
             "battery_telemetry_sample",
+            "battery_config_sample",
             "service_commitments_sample",
             "market_intraday",
             "market_order_book_sample",

@@ -353,6 +353,68 @@ class SampleBatteryAdapter(FeedAdapter):
         ]
 
 
+class SampleBatteryConfigAdapter(FeedAdapter):
+    feed_id = "battery_config_sample"
+    feed_name = "Battery operating limits"
+    description = "Explicit sample battery limits and diagnostic cost assumptions."
+    source_mode = SourceMode.SAMPLE
+    semantic_kind = SemanticKind.ASSUMPTION
+    cadence_seconds = 3600
+    freshness_sla_seconds = 7200
+    required_for_snapshot = True
+    required_for_optimiser = True
+
+    async def fetch(self, now: datetime) -> RawFeedResult:
+        return RawFeedResult(
+            rows=[{
+                "e_min_mwh": 10.0,
+                "e_max_mwh": 100.0,
+                "charge_max_mw": 20.0,
+                "discharge_max_mw": 20.0,
+                "charge_efficiency": 0.94,
+                "discharge_efficiency": 0.92,
+                "reserve_duration_hours": 1.0,
+                "terminal_soc_target_mwh": 55.0,
+                "degradation_cost_gbp_per_mwh": 4.0,
+                "terminal_soc_penalty_gbp_per_mwh": 1.5,
+                "future_flexibility_penalty_gbp_per_mwh": 2.5,
+            }],
+            retrieved_at=now,
+        )
+
+    def normalise(self, result: RawFeedResult) -> list[NormalisedValue]:
+        row = result.rows[0]
+        definitions = (
+            ("battery_e_min", "e_min_mwh", "MWh", lambda value: value >= 0, "E_min >= 0"),
+            ("battery_e_max", "e_max_mwh", "MWh", lambda value: value > 0, "E_max > 0"),
+            ("battery_charge_power_max", "charge_max_mw", "MW", lambda value: value >= 0, "P_charge_max >= 0"),
+            ("battery_discharge_power_max", "discharge_max_mw", "MW", lambda value: value >= 0, "P_discharge_max >= 0"),
+            ("battery_charge_efficiency", "charge_efficiency", "ratio", lambda value: 0 < value <= 1, "0 < eta_c <= 1"),
+            ("battery_discharge_efficiency", "discharge_efficiency", "ratio", lambda value: 0 < value <= 1, "0 < eta_d <= 1"),
+            ("battery_reserve_duration", "reserve_duration_hours", "h", lambda value: value >= 0, "h >= 0"),
+            ("battery_terminal_soc_target", "terminal_soc_target_mwh", "MWh", lambda value: value >= 0, "terminal target >= 0"),
+            ("battery_degradation_cost", "degradation_cost_gbp_per_mwh", "GBP/MWh", lambda value: value >= 0, "degradation cost >= 0"),
+            ("battery_terminal_soc_penalty", "terminal_soc_penalty_gbp_per_mwh", "GBP/MWh", lambda value: value >= 0, "terminal penalty >= 0"),
+            ("battery_future_flexibility_penalty", "future_flexibility_penalty_gbp_per_mwh", "GBP/MWh", lambda value: value >= 0, "future flexibility penalty >= 0"),
+        )
+        values: list[NormalisedValue] = []
+        for metric, field_name, unit, valid, detail in definitions:
+            value = float(row[field_name])
+            values.append(
+                NormalisedValue(
+                    metric=metric,
+                    value=value,
+                    unit=unit,
+                    raw_field_name=field_name,
+                    published_at=result.retrieved_at,
+                    transformations=["sample asset configuration", "mapped to canonical battery parameter"],
+                    checks=[ValidationCheck(name="valid_parameter", passed=valid(value), detail=detail)],
+                    warnings=["Sample battery configuration: replace with approved asset limits before live use."],
+                )
+            )
+        return values
+
+
 class SampleServiceAdapter(FeedAdapter):
     feed_id = "service_commitments_sample"
     feed_name = "Service commitments"
@@ -546,6 +608,7 @@ def adapters() -> list[FeedAdapter]:
         SampleForecastAdapter(),
         SamplePositionAdapter(),
         SampleBatteryAdapter(),
+        SampleBatteryConfigAdapter(),
         UnconfiguredMarketAdapter(),
         SampleMarketOrderBookAdapter(),
         SampleServiceAdapter(),
