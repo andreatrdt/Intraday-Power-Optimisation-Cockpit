@@ -8,9 +8,10 @@ from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 
 from cockpit.battery_layer import build_battery_flexibility
+from cockpit.battery_path_layer import build_standard_path_comparison, simulate_battery_path
 from cockpit.forecast_layer import build_forecast_layer
 from cockpit.market_layer import build_market_snapshot
-from cockpit.models import RefreshRequest
+from cockpit.models import BatteryPathInput, RefreshRequest
 from cockpit.pipeline import PIPELINE
 from cockpit.position_layer import build_forecast_position
 
@@ -23,8 +24,8 @@ async def lifespan(_: FastAPI):
 
 app = FastAPI(
     title="Intraday Power Optimisation Cockpit",
-    version="0.4.0",
-    description="Observable data flow, position, liquidity and battery-flexibility diagnostics",
+    version="0.5.0",
+    description="Observable data flow, position, liquidity and sequential battery-path diagnostics",
     lifespan=lifespan,
 )
 app.add_middleware(
@@ -39,7 +40,7 @@ app.add_middleware(
 
 @app.get("/api/health", tags=["health"])
 def health() -> dict:
-    return {"status": "ok", "milestone": "1D-battery-flexibility-opportunity-cost"}
+    return {"status": "ok", "milestone": "1E-sequential-battery-path-what-if"}
 
 
 @app.get("/api/v1/data-sources/health", tags=["data-flow"])
@@ -281,6 +282,45 @@ def current_battery() -> dict:
         "periods": battery.periods,
         "warnings": battery.warnings,
     }
+
+
+def _register_path_values(points) -> None:
+    for point in points:
+        PIPELINE.lineage_index[point.value_id] = point
+
+
+@app.get("/api/v1/battery-paths/comparison", tags=["battery-paths"])
+def battery_path_comparison() -> dict:
+    if PIPELINE.current_snapshot is None:
+        raise HTTPException(status_code=503, detail="No cockpit snapshot has been built")
+    result = build_standard_path_comparison(PIPELINE.current_snapshot)
+    _register_path_values(result.derived_values)
+    return {"comparison": result.comparison}
+
+
+@app.get("/api/v1/battery-paths/standard/{path_name}", tags=["battery-paths"])
+def standard_battery_path(path_name: str) -> dict:
+    allowed = {"NO_ACTION", "P50_COVERAGE", "PRESERVE_FLEXIBILITY"}
+    normalised = path_name.upper()
+    if normalised not in allowed:
+        raise HTTPException(status_code=404, detail=f"Unknown standard path '{path_name}'")
+    if PIPELINE.current_snapshot is None:
+        raise HTTPException(status_code=503, detail="No cockpit snapshot has been built")
+    result = simulate_battery_path(
+        PIPELINE.current_snapshot, BatteryPathInput(path_name=normalised)
+    )
+    _register_path_values(result.derived_values)
+    return {"simulation": result.simulation}
+
+
+@app.post("/api/v1/battery-paths/simulate", tags=["battery-paths"])
+def simulate_custom_battery_path(path: BatteryPathInput) -> dict:
+    if PIPELINE.current_snapshot is None:
+        raise HTTPException(status_code=503, detail="No cockpit snapshot has been built")
+    custom = path.model_copy(update={"path_name": "CUSTOM"})
+    result = simulate_battery_path(PIPELINE.current_snapshot, custom)
+    _register_path_values(result.derived_values)
+    return {"simulation": result.simulation}
 
 
 @app.get("/api/v1/cockpit", tags=["snapshots"])

@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Badge, LineageDrawer } from "./App";
 import { loadBatteryFlexibility, loadLineage } from "./api";
+import { ConnectionStatus } from "./ConnectionStatus";
+import { formatTimestampWithZone, formatUkMarketTime } from "./time";
 import type { BatteryExposureCoverage, BatteryFlexibilitySnapshot, BatteryPeriodSnapshot, CanonicalDataPoint, LineageResponse } from "./types";
 
 export function BatteryFlexibilityPage() {
@@ -42,8 +44,8 @@ export function BatteryFlexibilityPage() {
   return <div className="app-shell">
     <header className="topbar">
       <div className="brand-lockup"><div className="brand-mark">IP</div><div><p className="eyebrow">UK INTRADAY POWER</p><h1>Battery Flexibility</h1></div></div>
-      <nav><a href="/data-flow">Data flow</a><a href="/forecast-position">Forecast &amp; position</a><a href="/market-liquidity">Market &amp; liquidity</a><a className="active" href="/battery-flexibility">Battery flexibility</a><span>Optimisation</span><span>Actions</span></nav>
-      <div className="connection"><span className={`connection-dot ${error ? "down" : ""}`} /><span>{error ? "API issue" : "API connected"}</span><small>{lastLoaded ? clock(lastLoaded.toISOString()) : "connecting…"}</small></div>
+      <nav><a href="/data-flow">Data flow</a><a href="/forecast-position">Forecast &amp; position</a><a href="/market-liquidity">Market &amp; liquidity</a><a className="active" href="/battery-flexibility">Battery flexibility</a><a href="/battery-path">Battery path</a><span>Optimisation</span><span>Actions</span></nav>
+      <ConnectionStatus error={Boolean(error)} lastPoll={lastLoaded} />
     </header>
     <main>
       <section className="hero-row battery-hero"><div><p className="eyebrow">MILESTONE 1D · PHYSICAL FLEXIBILITY DIAGNOSTICS</p><h2>What can the battery physically do now—and what flexibility would that consume?</h2><p className="intro">Deterministic feasibility · labelled opportunity-cost assumptions · no dispatch recommendation</p></div>{battery && <Readiness battery={battery} />}</section>
@@ -79,8 +81,9 @@ function BatteryStatus({ battery, onValue }: { battery: BatteryFlexibilitySnapsh
   return <article className="battery-panel panel"><header><div><p className="eyebrow">01 · BATTERY STATUS</p><h3>Confirmed physical state</h3></div><div className="badges"><Badge value={battery.source_mode} /><Badge value={battery.quality} /></div></header>
     <button className="soc-display" onClick={() => onValue(soc)}><span>State of charge</span><strong>{fmt(Number(soc.value), 1)}</strong><small>MWh</small></button>
     <div className="soc-track"><i style={{ width: `${fill}%` }} /></div><div className="soc-bounds"><button onClick={() => onValue(limits.e_min)}>E min {fmt(Number(limits.e_min.value), 0)}</button><button onClick={() => onValue(limits.e_max)}>E max {fmt(Number(limits.e_max.value), 0)} MWh</button></div>
-    <dl className="battery-status-list"><dt>Telemetry time</dt><dd>{dateTime(soc.lineage.published_at ?? soc.lineage.retrieved_at)}</dd><dt>Charge / discharge limit</dt><dd><button onClick={() => onValue(limits.charge_power_max)}>{fmt(Number(limits.charge_power_max.value), 0)}</button> / <button onClick={() => onValue(limits.discharge_power_max)}>{fmt(Number(limits.discharge_power_max.value), 0)} MW</button></dd><dt>Efficiencies ηc / ηd</dt><dd><button onClick={() => onValue(limits.charge_efficiency)}>{fmt(Number(limits.charge_efficiency.value) * 100, 0)}%</button> / <button onClick={() => onValue(limits.discharge_efficiency)}>{fmt(Number(limits.discharge_efficiency.value) * 100, 0)}%</button></dd></dl>
+    <dl className="battery-status-list"><dt>Telemetry time</dt><dd>{formatTimestampWithZone(soc.lineage.published_at ?? soc.lineage.retrieved_at, "UK time")}</dd><dt>Charge / discharge limit</dt><dd><button onClick={() => onValue(limits.charge_power_max)}>{fmt(Number(limits.charge_power_max.value), 0)}</button> / <button onClick={() => onValue(limits.discharge_power_max)}>{fmt(Number(limits.discharge_power_max.value), 0)} MW</button></dd><dt>Efficiencies ηc / ηd</dt><dd><button onClick={() => onValue(limits.charge_efficiency)}>{fmt(Number(limits.charge_efficiency.value) * 100, 0)}%</button> / <button onClick={() => onValue(limits.discharge_efficiency)}>{fmt(Number(limits.discharge_efficiency.value) * 100, 0)}%</button></dd></dl>
     <div className="useful-periods"><span>Largest feasible exposure reduction</span>{battery.most_useful_periods.map((period) => <code key={period}>{period}</code>)}</div>
+    <ReadinessCauses battery={battery} />
     <p className="sample-disclaimer">{battery.readiness.reasons.join(" · ")}</p>
   </article>;
 }
@@ -114,7 +117,7 @@ function CoverageCard({ item, onValue }: { item: BatteryExposureCoverage; onValu
 function PeriodGrid({ periods, selected, onSelect, onValue }: { periods: BatteryPeriodSnapshot[]; selected: string; onSelect: (id: string) => void; onValue: (point: CanonicalDataPoint) => void }) {
   return <div className="table-wrap panel battery-grid"><table><thead><tr><th>Period</th><th>Delivery</th><th>Max charge</th><th>Max discharge</th><th>Up / down MW</th><th>SoC range after action</th><th>P10 residual</th><th>P50 residual</th><th>P90 residual</th><th>Binding</th></tr></thead><tbody>{periods.map((period) => {
     const f = period.feasibility; const coverage = Object.fromEntries(period.coverage.map((item) => [item.scenario, item]));
-    return <tr key={period.delivery_period} className={selected === period.delivery_period ? "selected-period" : ""} onClick={() => onSelect(period.delivery_period)}><td><strong>SP{period.settlement_period}</strong><small>{period.delivery_period}</small></td><td>{clock(period.delivery_start)}–{clock(period.delivery_end)}</td><td><GridValue point={f.max_charge_value} onValue={onValue} /></td><td><GridValue point={f.max_discharge_value} onValue={onValue} /></td><td><div className="grid-pair"><GridValue point={f.upward_power_headroom_value} onValue={onValue} /><span>/</span><GridValue point={f.downward_power_headroom_value} onValue={onValue} /></div></td><td><div className="grid-pair"><GridValue point={f.projected_soc_after_max_discharge_value} onValue={onValue} /><span>–</span><GridValue point={f.projected_soc_after_max_charge_value} onValue={onValue} /></div></td>{(["P10", "P50", "P90"] as const).map((scenario) => <td key={scenario}><button className={`grid-value ${direction(coverage[scenario].residual_after_support_mwh).toLowerCase()}`} onClick={(event) => { event.stopPropagation(); onValue(coverage[scenario].residual_value); }}>{signed(coverage[scenario].residual_after_support_mwh)}<small>{direction(coverage[scenario].residual_after_support_mwh)}</small></button></td>)}<td><span className="binding-cell">{f.binding_constraints.map((item) => item.split("_").slice(0, 2).join(" ")).join(" · ")}</span></td></tr>;
+    return <tr key={period.delivery_period} className={selected === period.delivery_period ? "selected-period" : ""} onClick={() => onSelect(period.delivery_period)}><td><strong>SP{period.settlement_period}</strong><small>{period.delivery_period}</small></td><td>{formatUkMarketTime(period.delivery_start)}–{formatUkMarketTime(period.delivery_end)}<small> · UK time</small></td><td><GridValue point={f.max_charge_value} onValue={onValue} /></td><td><GridValue point={f.max_discharge_value} onValue={onValue} /></td><td><div className="grid-pair"><GridValue point={f.upward_power_headroom_value} onValue={onValue} /><span>/</span><GridValue point={f.downward_power_headroom_value} onValue={onValue} /></div></td><td><div className="grid-pair"><GridValue point={f.projected_soc_after_max_discharge_value} onValue={onValue} /><span>–</span><GridValue point={f.projected_soc_after_max_charge_value} onValue={onValue} /></div></td>{(["P10", "P50", "P90"] as const).map((scenario) => <td key={scenario}><button className={`grid-value ${direction(coverage[scenario].residual_after_support_mwh).toLowerCase()}`} onClick={(event) => { event.stopPropagation(); onValue(coverage[scenario].residual_value); }}>{signed(coverage[scenario].residual_after_support_mwh)}<small>{direction(coverage[scenario].residual_after_support_mwh)}</small></button></td>)}<td><span className="binding-cell">{f.binding_constraints.map((item) => item.split("_").slice(0, 2).join(" ")).join(" · ")}</span></td></tr>;
   })}</tbody></table></div>;
 }
 
@@ -130,8 +133,14 @@ function GridValue({ point, onValue }: { point: CanonicalDataPoint; onValue: (po
   return <button className="grid-value" onClick={(event) => { event.stopPropagation(); onValue(point); }}>{fmt(Number(point.value), 1)}<small>{point.unit}</small></button>;
 }
 
+function ReadinessCauses({ battery }: { battery: BatteryFlexibilitySnapshot }) {
+  const stale = battery.quality === "STALE" || battery.readiness.reasons.some((reason) => reason.toLowerCase().includes("stale"));
+  return <div className="readiness-causes">
+    {battery.source_mode === "SAMPLE" && <p><strong>DEGRADED · SAMPLE</strong><span>Inputs are explicitly sample-labelled: usable for diagnostics, not live control.</span></p>}
+    {stale && <p><strong>STALE · FRESHNESS SLA EXCEEDED</strong><span>At least one input age exceeds its freshness SLA; review its source timestamp.</span></p>}
+  </div>;
+}
+
 function fmt(value: number, digits = 1) { return value.toLocaleString("en-GB", { minimumFractionDigits: digits, maximumFractionDigits: digits }); }
 function signed(value: number) { return `${value >= 0 ? "+" : "−"}${fmt(Math.abs(value), 1)}`; }
 function direction(value: number) { return value > 0.05 ? "LONG" : value < -0.05 ? "SHORT" : "FLAT"; }
-function clock(value: string) { return new Date(value).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit", timeZone: "Europe/London" }); }
-function dateTime(value: string) { return new Date(value).toLocaleString("en-GB", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit", second: "2-digit", timeZone: "Europe/London" }); }

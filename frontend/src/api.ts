@@ -1,4 +1,4 @@
-import type { BatteryFlexibilitySnapshot, CockpitSnapshot, DataFlowEvent, FeedHealth, ForecastPositionSnapshot, LineageResponse, MarketSnapshot } from "./types";
+import type { BatteryFlexibilitySnapshot, BatteryPathComparison, BatteryPathPeriodAction, BatteryPathSimulation, CockpitSnapshot, DataFlowEvent, FeedHealth, ForecastPositionSnapshot, LineageResponse, MarketSnapshot } from "./types";
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL ?? "http://127.0.0.1:8000/api/v1";
 
@@ -43,4 +43,17 @@ export async function loadMarketLiquidity(): Promise<MarketSnapshot> {
 export async function loadBatteryFlexibility(): Promise<BatteryFlexibilitySnapshot> {
   const response = await request<{ battery: BatteryFlexibilitySnapshot }>("/battery-flexibility");
   return response.battery;
+}
+
+export async function loadBatteryPathComparison(): Promise<BatteryPathComparison> {
+  const response = await request<{ comparison: BatteryPathComparison }>("/battery-paths/comparison");
+  return response.comparison;
+}
+
+export async function simulateBatteryPath(actions: BatteryPathPeriodAction[]): Promise<BatteryPathSimulation> {
+  const response = await request<{ simulation: BatteryPathSimulation }>("/battery-paths/simulate", {
+    method: "POST",
+    body: JSON.stringify({ path_name: "CUSTOM", actions }),
+  });
+  return response.simulation;
 }

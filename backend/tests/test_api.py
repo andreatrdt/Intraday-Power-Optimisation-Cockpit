@@ -77,3 +77,26 @@ def test_battery_flexibility_endpoint_and_lineage(client) -> None:
     current = client.get("/api/v1/batteries/current")
     assert current.status_code == 200
     assert current.json()["current_soc"]["unit"] == "MWh"
+
+
+def test_battery_path_comparison_custom_simulation_and_lineage(client) -> None:
+    comparison_response = client.get("/api/v1/battery-paths/comparison")
+    assert comparison_response.status_code == 200
+    comparison = comparison_response.json()["comparison"]
+    assert comparison["no_action"]["path_name"] == "NO_ACTION"
+    assert comparison["p50_coverage"]["diagnostic_only"] is True
+
+    first_period = comparison["no_action"]["periods"][0]["delivery_period"]
+    custom_response = client.post("/api/v1/battery-paths/simulate", json={
+        "path_name": "CUSTOM",
+        "actions": [{"delivery_period": first_period, "charge_mw": 4, "discharge_mw": 0}],
+    })
+    assert custom_response.status_code == 200
+    custom = custom_response.json()["simulation"]
+    assert custom["path_name"] == "CUSTOM"
+    assert custom["periods"][1]["starting_soc_mwh"] == custom["periods"][0]["ending_soc_mwh"]
+
+    value_id = custom["periods"][0]["ending_soc_value"]["value_id"]
+    lineage = client.get(f"/api/v1/lineage/{value_id}")
+    assert lineage.status_code == 200
+    assert lineage.json()["value"]["lineage"]["source_feed"] == "battery_path_simulation"

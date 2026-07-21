@@ -1,7 +1,8 @@
 # Intraday Power Optimisation Cockpit
 
-Milestones 1A through 1D provide visible, inspectable data-flow, Forecast & Position,
-Market & Liquidity, and Battery Flexibility vertical slices for a future UK intraday power trading cockpit.
+Milestones 1A through 1E provide visible, inspectable data-flow, Forecast & Position,
+Market & Liquidity, Battery Flexibility, and sequential Battery Path vertical slices
+for a future UK intraday power trading cockpit.
 They deliberately do **not** contain a backtester, replay engine,
 strategy-performance page, battery co-optimiser, or trade recommendation engine.
 
@@ -23,6 +24,10 @@ The current application shows:
 - current SoC, physical limits, service reservations and deterministic period feasibility;
 - maximum directional exposure coverage, binding constraints and residual exposure;
 - a transparent battery opportunity-cost heuristic with inspectable assumptions.
+- sequential SoC propagation for standard and user-edited candidate battery paths;
+- per-period path violations, binding constraints, residual scenario exposure and
+  terminal-SoC consequences;
+- explicit comparison of no-action, P50-coverage and preserve-flexibility paths.
 
 Live failures are never replaced by synthetic data. Sample and synthetic feeds are
 only loaded through their explicitly named adapters.
@@ -59,7 +64,8 @@ npm run dev
 Open <http://localhost:5173/data-flow> or
 <http://localhost:5173/forecast-position> or
 <http://localhost:5173/market-liquidity> or
-<http://localhost:5173/battery-flexibility>.
+<http://localhost:5173/battery-flexibility> or
+<http://localhost:5173/battery-path>.
 
 The frontend uses `http://127.0.0.1:8000/api/v1` by default. Override the API root
 with `VITE_API_BASE_URL` when required. The Vite server also includes a local
@@ -98,4 +104,4 @@ See [docs/data-flow.md](docs/data-flow.md) for the ingestion pipeline and
 [docs/forecast-position.md](docs/forecast-position.md) for the Milestone 1B
 calculation and readiness rules, [docs/market-liquidity.md](docs/market-liquidity.md)
 for Milestone 1C, and [docs/battery-flexibility.md](docs/battery-flexibility.md)
-for Milestone 1D.
+for Milestone 1D, and [docs/battery-path.md](docs/battery-path.md) for Milestone 1E.

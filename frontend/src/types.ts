@@ -386,3 +386,102 @@ export interface BatteryFlexibilitySnapshot {
   most_useful_periods: string[];
   warnings: string[];
 }
+
+export interface BatteryPathPeriodAction {
+  delivery_period: string;
+  charge_mw: number;
+  discharge_mw: number;
+}
+
+export interface BatteryPathViolation {
+  code: string;
+  message: string;
+  severity: string;
+  delivery_period: string | null;
+  observed_value: CanonicalDataPoint | null;
+  limit_value: CanonicalDataPoint | null;
+}
+
+export interface BatteryPathPeriodResult {
+  settlement_period: number;
+  delivery_period: string;
+  delivery_start: string;
+  delivery_end: string;
+  duration_hours: number;
+  starting_soc_mwh: number;
+  charge_mw: number;
+  charge_mwh: number;
+  discharge_mw: number;
+  discharge_mwh: number;
+  net_export_mw: number;
+  ending_soc_mwh: number;
+  upward_power_headroom_mw: number;
+  downward_power_headroom_mw: number;
+  upward_energy_duration_hours: number;
+  downward_energy_duration_hours: number;
+  max_feasible_charge_mwh: number;
+  max_feasible_discharge_mwh: number;
+  starting_soc_value: CanonicalDataPoint;
+  charge_power_value: CanonicalDataPoint;
+  charge_energy_value: CanonicalDataPoint;
+  discharge_power_value: CanonicalDataPoint;
+  discharge_energy_value: CanonicalDataPoint;
+  net_export_value: CanonicalDataPoint;
+  ending_soc_value: CanonicalDataPoint;
+  upward_power_headroom_value: CanonicalDataPoint;
+  downward_power_headroom_value: CanonicalDataPoint;
+  upward_energy_duration_value: CanonicalDataPoint;
+  downward_energy_duration_value: CanonicalDataPoint;
+  max_feasible_charge_value: CanonicalDataPoint;
+  max_feasible_discharge_value: CanonicalDataPoint;
+  exposure_before: ScenarioExposure[];
+  residual_exposure: ScenarioExposure[];
+  binding_constraints: string[];
+  violations: BatteryPathViolation[];
+}
+
+export interface BatteryPathSimulation {
+  simulation_id: string;
+  cockpit_snapshot_id: string;
+  path_name: "NO_ACTION" | "P50_COVERAGE" | "PRESERVE_FLEXIBILITY" | "CUSTOM";
+  path_label: string;
+  path_kind: string;
+  diagnostic_only: boolean;
+  as_of: string;
+  source_mode: SourceMode;
+  quality: Quality;
+  readiness: PositionReadiness;
+  valid: boolean;
+  periods: BatteryPathPeriodResult[];
+  e_min_mwh: number | null;
+  e_max_mwh: number | null;
+  e_min_value: CanonicalDataPoint | null;
+  e_max_value: CanonicalDataPoint | null;
+  terminal_soc_mwh: number | null;
+  terminal_soc_value: CanonicalDataPoint | null;
+  terminal_target_mwh: number | null;
+  terminal_target_value: CanonicalDataPoint | null;
+  terminal_shortfall_mwh: number | null;
+  terminal_shortfall_value: CanonicalDataPoint | null;
+  total_absolute_p50_residual_mwh: number | null;
+  total_absolute_p50_residual_value: CanonicalDataPoint | null;
+  first_binding_constraint: string | null;
+  violations: BatteryPathViolation[];
+  explanation: string;
+  warnings: string[];
+}
+
+export interface BatteryPathComparison {
+  comparison_id: string;
+  cockpit_snapshot_id: string;
+  as_of: string;
+  readiness: PositionReadiness;
+  no_action: BatteryPathSimulation;
+  p50_coverage: BatteryPathSimulation;
+  preserve_flexibility: BatteryPathSimulation;
+  p50_terminal_soc_delta_mwh: number;
+  preserve_terminal_soc_delta_mwh: number;
+  p50_residual_reduction_mwh: number;
+  preserve_residual_reduction_mwh: number;
+  explanation: string;
+}

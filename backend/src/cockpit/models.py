@@ -464,3 +464,114 @@ class BatteryFlexibilitySnapshot(BaseModel):
     periods: list[BatteryPeriodSnapshot] = Field(default_factory=list)
     most_useful_periods: list[str] = Field(default_factory=list)
     warnings: list[str] = Field(default_factory=list)
+
+
+class BatteryPathPeriodAction(BaseModel):
+    delivery_period: str
+    charge_mw: float = 0.0
+    discharge_mw: float = 0.0
+
+
+class BatteryPathInput(BaseModel):
+    path_name: str = "CUSTOM"
+    actions: list[BatteryPathPeriodAction] = Field(default_factory=list)
+
+
+class BatteryPathViolation(BaseModel):
+    code: str
+    message: str
+    severity: str = "ERROR"
+    delivery_period: str | None = None
+    observed_value: CanonicalDataPoint | None = None
+    limit_value: CanonicalDataPoint | None = None
+
+
+class BatteryPathPeriodResult(BaseModel):
+    settlement_period: int
+    delivery_period: str
+    delivery_start: datetime
+    delivery_end: datetime
+    duration_hours: float
+    starting_soc_mwh: float
+    charge_mw: float
+    charge_mwh: float
+    discharge_mw: float
+    discharge_mwh: float
+    net_export_mw: float
+    ending_soc_mwh: float
+    upward_power_headroom_mw: float
+    downward_power_headroom_mw: float
+    upward_energy_duration_hours: float
+    downward_energy_duration_hours: float
+    max_feasible_charge_mwh: float
+    max_feasible_discharge_mwh: float
+    starting_soc_value: CanonicalDataPoint
+    charge_power_value: CanonicalDataPoint
+    charge_energy_value: CanonicalDataPoint
+    discharge_power_value: CanonicalDataPoint
+    discharge_energy_value: CanonicalDataPoint
+    net_export_value: CanonicalDataPoint
+    ending_soc_value: CanonicalDataPoint
+    upward_power_headroom_value: CanonicalDataPoint
+    downward_power_headroom_value: CanonicalDataPoint
+    upward_energy_duration_value: CanonicalDataPoint
+    downward_energy_duration_value: CanonicalDataPoint
+    max_feasible_charge_value: CanonicalDataPoint
+    max_feasible_discharge_value: CanonicalDataPoint
+    exposure_before: list[ScenarioExposure]
+    residual_exposure: list[ScenarioExposure]
+    binding_constraints: list[str] = Field(default_factory=list)
+    violations: list[BatteryPathViolation] = Field(default_factory=list)
+
+
+class BatteryPathReadiness(BaseModel):
+    status: SnapshotStatus
+    calculation_allowed: bool
+    trustworthy_for_live_trading: bool
+    reasons: list[str] = Field(default_factory=list)
+
+
+class BatteryPathSimulation(BaseModel):
+    simulation_id: str
+    cockpit_snapshot_id: str
+    path_name: str
+    path_label: str
+    path_kind: str
+    diagnostic_only: bool = True
+    as_of: datetime
+    source_mode: SourceMode
+    quality: Quality
+    readiness: BatteryPathReadiness
+    valid: bool
+    periods: list[BatteryPathPeriodResult] = Field(default_factory=list)
+    e_min_mwh: float | None = None
+    e_max_mwh: float | None = None
+    e_min_value: CanonicalDataPoint | None = None
+    e_max_value: CanonicalDataPoint | None = None
+    terminal_soc_mwh: float | None = None
+    terminal_soc_value: CanonicalDataPoint | None = None
+    terminal_target_mwh: float | None = None
+    terminal_target_value: CanonicalDataPoint | None = None
+    terminal_shortfall_mwh: float | None = None
+    terminal_shortfall_value: CanonicalDataPoint | None = None
+    total_absolute_p50_residual_mwh: float | None = None
+    total_absolute_p50_residual_value: CanonicalDataPoint | None = None
+    first_binding_constraint: str | None = None
+    violations: list[BatteryPathViolation] = Field(default_factory=list)
+    explanation: str
+    warnings: list[str] = Field(default_factory=list)
+
+
+class BatteryPathComparison(BaseModel):
+    comparison_id: str
+    cockpit_snapshot_id: str
+    as_of: datetime
+    readiness: BatteryPathReadiness
+    no_action: BatteryPathSimulation
+    p50_coverage: BatteryPathSimulation
+    preserve_flexibility: BatteryPathSimulation
+    p50_terminal_soc_delta_mwh: float
+    preserve_terminal_soc_delta_mwh: float
+    p50_residual_reduction_mwh: float
+    preserve_residual_reduction_mwh: float
+    explanation: str

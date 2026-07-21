@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Badge, LineageDrawer } from "./App";
 import { loadForecastPosition, loadLineage } from "./api";
+import { ConnectionStatus } from "./ConnectionStatus";
+import { formatTimestampWithZone, formatUkMarketTime } from "./time";
 import type {
   CanonicalDataPoint,
   ForecastPositionPeriod,
@@ -64,13 +66,10 @@ export function ForecastPositionPage() {
           <a className="active" href="/forecast-position">Forecast &amp; position</a>
           <a href="/market-liquidity">Market &amp; liquidity</a>
           <a href="/battery-flexibility">Battery flexibility</a>
+          <a href="/battery-path">Battery path</a>
           <span>Optimisation</span><span>Actions</span>
         </nav>
-        <div className="connection">
-          <span className={`connection-dot ${error ? "down" : ""}`} />
-          <span>{error ? "API issue" : "API connected"}</span>
-          <small>{lastLoaded ? formatTime(lastLoaded.toISOString()) : "connecting…"}</small>
-        </div>
+        <ConnectionStatus error={Boolean(error)} lastPoll={lastLoaded} />
       </header>
 
       <main>
@@ -132,7 +131,7 @@ function ForecastVintagePanel({ period, snapshot, onValue }: { period: ForecastP
   return (
     <article className="summary-panel panel">
       <header><div><p className="eyebrow">01 · FORECAST VINTAGE</p><h3>{period.delivery_period} · {deliveryWindow(period)}</h3></div><div className="badges"><Badge value={forecast.p50.lineage.source_mode} /><Badge value={forecast.p50.lineage.quality} /></div></header>
-      <div className="vintage-times"><Metric label="Latest vintage" value={formatDateTime(snapshot.latest_vintage?.issued_at)} /><Metric label="Previous vintage" value={formatDateTime(snapshot.previous_vintage?.issued_at)} /></div>
+      <div className="vintage-times"><Metric label="Latest vintage" value={snapshot.latest_vintage?.issued_at ? formatTimestampWithZone(snapshot.latest_vintage.issued_at, "UK time") : "Unavailable"} /><Metric label="Previous vintage" value={snapshot.previous_vintage?.issued_at ? formatTimestampWithZone(snapshot.previous_vintage.issued_at, "UK time") : "Unavailable"} /></div>
       <div className="scenario-strip">
         <ValueButton label="P10" point={forecast.p10} onClick={onValue} />
         <ValueButton label="P50 latest" point={forecast.p50} onClick={onValue} hero />
@@ -171,7 +170,7 @@ function PeriodGrid({ periods, selected, onSelect, onValue }: { periods: Forecas
       <tbody>{periods.map((period) => {
         const p10 = exposure(period, "P10"); const p50 = exposure(period, "P50"); const p90 = exposure(period, "P90");
         return <tr key={period.delivery_period} className={period.delivery_period === selected ? "selected-period" : ""} onClick={() => onSelect(period.delivery_period)}>
-          <td><strong>SP{period.settlement_period}</strong><small>{formatTime(period.delivery_start)}–{formatTime(period.delivery_end)}</small><em>risk #{period.risk_rank}</em></td>
+          <td><strong>SP{period.settlement_period}</strong><small>{formatUkMarketTime(period.delivery_start)}–{formatUkMarketTime(period.delivery_end)} UK time</small><em>risk #{period.risk_rank}</em></td>
           <GridValue point={period.forecast.p10} onValue={onValue} /><GridValue point={period.forecast.p50} onValue={onValue} /><GridValue point={period.forecast.p90} onValue={onValue} /><GridValue point={period.forecast.previous_p50} onValue={onValue} /><GridValue point={period.forecast.delta.versus_previous_value} onValue={onValue} signedValue />
           <GridValue point={period.position.contracted_position} onValue={onValue} />
           <ExposureCell exposure={p10} onValue={onValue} /><ExposureCell exposure={p50} onValue={onValue} /><ExposureCell exposure={p90} onValue={onValue} />
@@ -198,6 +197,4 @@ function Metric({ label, value }: { label: string; value: string }) { return <di
 function exposure(period: ForecastPositionPeriod, scenario: string): ScenarioExposure { return period.exposures.find((item) => item.scenario === scenario)!; }
 function formatNumber(value: number): string { return value.toLocaleString(undefined, { maximumFractionDigits: 1 }); }
 function signed(value: number): string { return `${value > 0 ? "+" : ""}${formatNumber(value)}`; }
-function formatDateTime(value?: string | null): string { return value ? new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short" }).format(new Date(value)) : "Unavailable"; }
-function formatTime(value: string): string { return new Intl.DateTimeFormat(undefined, { hour: "2-digit", minute: "2-digit" }).format(new Date(value)); }
-function deliveryWindow(period: ForecastPositionPeriod): string { return `${formatTime(period.delivery_start)}–${formatTime(period.delivery_end)}`; }
+function deliveryWindow(period: ForecastPositionPeriod): string { return `${formatUkMarketTime(period.delivery_start)}–${formatUkMarketTime(period.delivery_end)} UK time`; }

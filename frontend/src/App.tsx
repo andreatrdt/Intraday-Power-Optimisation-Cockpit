@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { loadCockpit, loadLineage, refreshFeed } from "./api";
+import { ConnectionStatus } from "./ConnectionStatus";
+import { formatLocalTime, formatTimestampWithZone } from "./time";
 import type {
   CanonicalDataPoint,
   CockpitSnapshot,
@@ -84,14 +86,11 @@ export function App() {
           <a href="/forecast-position">Forecast &amp; position</a>
           <a href="/market-liquidity">Market &amp; liquidity</a>
           <a href="/battery-flexibility">Battery flexibility</a>
+          <a href="/battery-path">Battery path</a>
           <span>Optimisation</span>
           <span>Actions</span>
         </nav>
-        <div className="connection">
-          <span className={`connection-dot ${error ? "down" : ""}`} />
-          <span>{error ? "API issue" : "API connected"}</span>
-          <small>{lastLoaded ? time(lastLoaded.toISOString()) : "connecting…"}</small>
-        </div>
+        <ConnectionStatus error={Boolean(error)} lastPoll={lastLoaded} />
       </header>
 
       <main>
@@ -201,8 +200,8 @@ function FeedCard({ feed, busy, onRefresh }: { feed: FeedHealth; busy: boolean; 
       </div>
       <div className="flow-labels"><span>Source</span><span>Canonical</span><span>Snapshot</span></div>
       <dl className="feed-stats">
-        <Stat label="Last attempt" value={dateTime(feed.last_refresh_attempt)} />
-        <Stat label="Last success" value={dateTime(feed.last_successful_refresh)} />
+        <Stat label="Last attempt" value={feed.last_refresh_attempt ? formatTimestampWithZone(feed.last_refresh_attempt, "local time") : "Never"} />
+        <Stat label="Last success" value={feed.last_successful_refresh ? formatTimestampWithZone(feed.last_successful_refresh, "local time") : "Never"} />
         <Stat label="Cadence / SLA" value={`${duration(feed.expected_refresh_cadence_seconds)} / ${duration(feed.freshness_sla_seconds)}`} />
         <Stat label="Age" value={age(feed.age_seconds)} />
         <Stat label="Retrieved / canonical" value={`${feed.rows_retrieved} / ${feed.rows_normalised}`} />
@@ -232,7 +231,7 @@ function EventTimeline({ events }: { events: DataFlowEvent[] }) {
     <div className="timeline panel">
       {events.slice(0, 30).map((event) => (
         <div className={`timeline-row ${event.level.toLowerCase()}`} key={event.event_id}>
-          <time>{time(event.occurred_at)}</time>
+          <time>{formatLocalTime(event.occurred_at)} local time</time>
           <span className="timeline-node" />
           <div>
             <div className="timeline-meta"><span>{event.stage.replaceAll("_", " ")}</span>{event.feed_id && <code>{event.feed_id}</code>}</div>
@@ -253,7 +252,7 @@ function SnapshotInspector({ snapshot }: { snapshot: CockpitSnapshot }) {
       </div>
       <dl className="snapshot-meta">
         <Stat label="Snapshot ID" value={snapshot.snapshot_id} />
-        <Stat label="As of" value={dateTime(snapshot.as_of)} />
+        <Stat label="As of" value={formatTimestampWithZone(snapshot.as_of, "local time")} />
         <Stat label="Input hash" value={`${snapshot.input_hash.slice(0, 16)}…`} />
         <Stat label="Canonical values" value={String(snapshot.values.length)} />
       </dl>
@@ -295,7 +294,7 @@ function CanonicalTable({ values, onSelect }: { values: CanonicalDataPoint[]; on
               <td><Badge value={point.lineage.source_mode} /></td>
               <td><Badge value={point.lineage.semantic_kind} /></td>
               <td><Badge value={point.lineage.quality} /></td>
-              <td>{time(point.lineage.retrieved_at)}</td>
+              <td>{formatLocalTime(point.lineage.retrieved_at)} local time</td>
             </tr>
           ))}
         </tbody>
@@ -329,11 +328,11 @@ export function LineageDrawer({ response, onClose }: { response: LineageResponse
         <section className="drawer-section">
           <h4>Time trace</h4>
           <dl className="detail-list">
-            <Stat label="Published" value={dateTime(point.lineage.published_at)} />
-            <Stat label="Retrieved" value={dateTime(point.lineage.retrieved_at)} />
-            <Stat label="Normalised" value={dateTime(point.lineage.normalised_at)} />
+            <Stat label="Published" value={point.lineage.published_at ? formatTimestampWithZone(point.lineage.published_at, "local time") : "Never"} />
+            <Stat label="Retrieved" value={formatTimestampWithZone(point.lineage.retrieved_at, "local time")} />
+            <Stat label="Normalised" value={formatTimestampWithZone(point.lineage.normalised_at, "local time")} />
             <Stat label="Age at snapshot" value={age(response.age_seconds)} />
-            <Stat label="Delivery start" value={dateTime(point.delivery_start)} />
+            <Stat label="Delivery start" value={point.delivery_start ? formatTimestampWithZone(point.delivery_start, "UK time") : "Never"} />
           </dl>
         </section>
         <section className="drawer-section">
@@ -381,15 +380,6 @@ function metricLabel(metric: string): string {
 
 function formatValue(value: number | string | boolean): string {
   return typeof value === "number" ? value.toLocaleString(undefined, { maximumFractionDigits: 3 }) : String(value);
-}
-
-function dateTime(value: string | null): string {
-  if (!value) return "Never";
-  return new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "medium" }).format(new Date(value));
-}
-
-function time(value: string): string {
-  return new Intl.DateTimeFormat(undefined, { hour: "2-digit", minute: "2-digit", second: "2-digit" }).format(new Date(value));
 }
 
 function age(seconds: number | null): string {
