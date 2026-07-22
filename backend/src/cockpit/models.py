@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from datetime import datetime
 from enum import StrEnum
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
@@ -931,6 +931,7 @@ class LiveHistoryPoint(BaseModel):
     system_tightness_score: float
     demand_surprise_mw: float
     production_surprise_mw: float
+    regime: str = "normal"
 
 
 class ForecastVintageChartPoint(BaseModel):
@@ -944,6 +945,36 @@ class ForecastVintageChartPoint(BaseModel):
     delta_mwh: float
     confidence_score: float
     driver: str
+
+
+class ForecastVintageHistoryPoint(BaseModel):
+    observed_at: datetime
+    vintage_id: str
+    delivery_period: str
+    p50_mwh: float
+    previous_p50_mwh: float
+    actual_mwh: float | None = None
+    error_mwh: float | None = None
+    source_mode: SourceMode = SourceMode.SAMPLE
+
+
+class HistoricalOptimisationPoint(BaseModel):
+    as_of: datetime
+    run_id: str
+    first_action: str
+    starting_soc_mwh: float
+    projected_soc_mwh: float
+    starting_q_mwh: float
+    buy_mwh: float
+    sell_mwh: float
+    diagnostic_value_gbp: float
+
+
+class ChartAnnotation(BaseModel):
+    timestamp: datetime | None = None
+    label: str
+    kind: str
+    value: float | None = None
 
 
 class ChartPoint(BaseModel):
@@ -960,6 +991,9 @@ class ChartSeries(BaseModel):
     unit: str
     kind: str = "line"
     points: list[ChartPoint] = Field(default_factory=list)
+    flat_explanation: str | None = None
+    region: str = "historical"
+    annotations: list[ChartAnnotation] = Field(default_factory=list)
 
 
 class RiskMeasure(BaseModel):
@@ -1035,8 +1069,8 @@ class RollingState(BaseModel):
     snapshot_id: str
     last_soc_change_mwh: float = 0.0
     last_q_change_mwh: float = 0.0
-    horizon_mode: HorizonMode = HorizonMode.NEXT_8_PERIODS
-    effective_horizon_mode: HorizonMode = HorizonMode.NEXT_8_PERIODS
+    horizon_mode: HorizonMode = HorizonMode.NEXT_AUCTION
+    effective_horizon_mode: HorizonMode = HorizonMode.NEXT_AUCTION
     optimisation_horizon_start: datetime
     optimisation_horizon_end: datetime
     horizon_warning: str | None = None
@@ -1105,7 +1139,12 @@ class LiveStateSnapshot(BaseModel):
     lineage_values: list[CanonicalDataPoint] = Field(default_factory=list)
     history: list[LiveHistoryPoint] = Field(default_factory=list)
     forecast_vintage_series: list[ForecastVintageChartPoint] = Field(default_factory=list)
+    forecast_vintage_history: list[ForecastVintageHistoryPoint] = Field(default_factory=list)
+    optimisation_history: list[HistoricalOptimisationPoint] = Field(default_factory=list)
+    available_history_windows: list[str] = Field(default_factory=lambda: ["today", "24h", "7d", "30d", "custom"])
     chart_series: dict[str, list[ChartSeries]] = Field(default_factory=dict)
+    chart_insights: dict[str, str] = Field(default_factory=dict)
+    context_risk_measures: list[RiskMeasure] = Field(default_factory=list)
     warnings: list[str] = Field(default_factory=list)
 
 
@@ -1132,8 +1171,8 @@ class OptimisationStartingState(BaseModel):
     market_snapshot_id: str
     regime: SampleRegime
     source_mode: SourceMode
-    horizon_mode: HorizonMode = HorizonMode.NEXT_8_PERIODS
-    effective_horizon_mode: HorizonMode = HorizonMode.NEXT_8_PERIODS
+    horizon_mode: HorizonMode = HorizonMode.NEXT_AUCTION
+    effective_horizon_mode: HorizonMode = HorizonMode.NEXT_AUCTION
     horizon_start: datetime
     horizon_end: datetime
 
@@ -1246,7 +1285,118 @@ class OptimisationPeriodResult(BaseModel):
     downward_headroom_mw: float = 0.0
     upward_duration_coverage_h: float = 0.0
     downward_duration_coverage_h: float = 0.0
+    imbalance_expected_cost_gbp: float = 0.0
+    tail_risk_penalty_gbp: float = 0.0
+    optionality_preservation_value_gbp: float = 0.0
+    service_non_delivery_risk_gbp: float = 0.0
     values: dict[str, CanonicalDataPoint] = Field(default_factory=dict)
+
+
+class BatteryPathPoint(BaseModel):
+    settlement_period: int
+    delivery_period: str
+    timestamp: datetime
+    delivery_end: datetime
+    phase: str
+    charge_mw: float
+    charge_mwh: float
+    discharge_mw: float
+    discharge_mwh: float
+    soc_start_mwh: float
+    soc_end_mwh: float
+    reserve_up_mw: float
+    reserve_down_mw: float
+    upward_headroom_mw: float
+    downward_headroom_mw: float
+    upward_duration_coverage_h: float
+    downward_duration_coverage_h: float
+    soc_min_mwh: float
+    soc_max_mwh: float
+    terminal_soc_target_mwh: float
+    terminal_soc_minimum_mwh: float
+    binding_constraints: list[str] = Field(default_factory=list)
+    flat_path_explanation: str | None = None
+
+
+class PositionPathPoint(BaseModel):
+    settlement_period: int
+    delivery_period: str
+    timestamp: datetime
+    delivery_end: datetime
+    phase: str
+    generation_p10_mwh: float
+    generation_p50_mwh: float
+    generation_p90_mwh: float
+    demand_mw: float
+    residual_demand_mw: float
+    q_before_mwh: float
+    buy_mwh: float
+    sell_mwh: float
+    q_after_mwh: float
+    exposure_before_p10_mwh: float
+    exposure_before_p50_mwh: float
+    exposure_before_p90_mwh: float
+    residual_p10_mwh: float
+    residual_p50_mwh: float
+    residual_p90_mwh: float
+    market_action_allowed: bool
+    gate_closure_at: datetime
+    gate_closure_status: str
+    binding_constraints: list[str] = Field(default_factory=list)
+    one_line_reason: str
+
+
+class MarketExecutionPathPoint(BaseModel):
+    settlement_period: int
+    delivery_period: str
+    timestamp: datetime
+    phase: str
+    bid_price_gbp_per_mwh: float
+    ask_price_gbp_per_mwh: float
+    wap_used_gbp_per_mwh: float | None = None
+    spread_gbp_per_mwh: float
+    bid_depth_mwh: float
+    ask_depth_mwh: float
+    consumed_bid_depth_mwh: float
+    consumed_ask_depth_mwh: float
+    unfilled_volume_mwh: float
+    executable_data_mode: SourceMode
+    reference_price_gbp_per_mwh: float
+    reference_price_mode: SourceMode
+    gate_closure_at: datetime
+    market_action_allowed: bool
+
+
+class RiskValuePathPoint(BaseModel):
+    settlement_period: int
+    delivery_period: str
+    timestamp: datetime
+    phase: str
+    market_value_or_cost_gbp: float
+    imbalance_cost_gbp: float
+    tail_risk_penalty_gbp: float
+    degradation_cost_gbp: float
+    terminal_soc_value_gbp: float
+    reserve_bm_service_value_gbp: float
+    optionality_lost_gbp: float
+    total_period_contribution_gbp: float
+    worst_case_residual_mwh: float
+    binding_constraint_count: int
+
+
+class OptimisationInteractionPoint(BaseModel):
+    stable_sp_id: str
+    delivery_period: str
+    settlement_period: int
+    display_label: str
+    uk_delivery_time: str
+    phase: Literal["historical", "current", "optimised_future"]
+    linked_trajectory_row_id: str
+    tooltip_payload: dict[str, Any] = Field(default_factory=dict)
+    annotation_payload: list[str] = Field(default_factory=list)
+    source_mode: SourceMode
+    source_provenance: list[str] = Field(default_factory=list)
+    explanation_text: str
 
 
 class OptimisationChangeSummary(BaseModel):
@@ -1258,6 +1408,8 @@ class OptimisationChangeSummary(BaseModel):
     soc_change_mwh: float
     reserve_optionality_change_gbp: float
     trajectory_change_reason: str
+    headroom_change_mw: float = 0.0
+    largest_new_risk: str = "No new material risk identified."
 
 
 class OptimisationRun(BaseModel):
@@ -1279,6 +1431,24 @@ class OptimisationRun(BaseModel):
     readiness: OptimisationReadiness
     lineage_values: list[CanonicalDataPoint] = Field(default_factory=list)
     chart_series: dict[str, list[ChartSeries]] = Field(default_factory=dict)
+    chart_insights: dict[str, str] = Field(default_factory=dict)
+    auction_boundary_time: str = "15:00 UK time"
+    previous_auction_time: datetime | None = None
+    next_auction_time: datetime | None = None
+    now_marker_time: datetime | None = None
+    current_sp: int | None = None
+    visual_window_start: datetime | None = None
+    visual_window_end: datetime | None = None
+    optimisation_window_start: datetime | None = None
+    optimisation_window_end: datetime | None = None
+    number_of_sps_shown: int = 0
+    number_of_sps_optimised: int = 0
+    battery_path_series: list[BatteryPathPoint] = Field(default_factory=list)
+    position_path_series: list[PositionPathPoint] = Field(default_factory=list)
+    market_execution_series: list[MarketExecutionPathPoint] = Field(default_factory=list)
+    risk_value_series: list[RiskValuePathPoint] = Field(default_factory=list)
+    interaction_points: list[OptimisationInteractionPoint] = Field(default_factory=list)
+    whole_path_explanation: str = ""
     risk_measures: list[RiskMeasure] = Field(default_factory=list)
     driver_contributions: list[DriverContribution] = Field(default_factory=list)
     sensitivities: list[SensitivityResult] = Field(default_factory=list)

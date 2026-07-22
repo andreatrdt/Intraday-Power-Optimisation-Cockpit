@@ -65,3 +65,26 @@ def upcoming_periods(as_of: datetime, count: int = 8) -> list[SettlementPeriod]:
         result.append(settlement_period_for_instant(cursor))
         cursor += PERIOD
     return result
+
+
+def daily_auction_boundaries(as_of: datetime, hour: int = 15) -> tuple[datetime, datetime]:
+    """Return the previous/equal and next daily UK-local auction boundaries in UTC."""
+    if as_of.tzinfo is None:
+        raise ValueError("Auction boundary instants must be timezone-aware")
+    local = as_of.astimezone(LONDON)
+    candidate = datetime(local.year, local.month, local.day, hour, tzinfo=LONDON)
+    previous_local = candidate if local >= candidate else candidate - timedelta(days=1)
+    next_day = previous_local.date() + timedelta(days=1)
+    next_local = datetime(next_day.year, next_day.month, next_day.day, hour, tzinfo=LONDON)
+    return previous_local.astimezone(UTC), next_local.astimezone(UTC)
+
+
+def auction_window_periods(as_of: datetime, hour: int = 15) -> list[SettlementPeriod]:
+    """Settlement periods whose starts cover the full UK auction-to-auction window."""
+    previous, following = daily_auction_boundaries(as_of, hour)
+    periods: list[SettlementPeriod] = []
+    cursor = previous
+    while cursor < following:
+        periods.append(settlement_period_for_instant(cursor))
+        cursor += PERIOD
+    return periods

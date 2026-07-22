@@ -810,6 +810,30 @@ export interface LiveHistoryPoint {
   system_tightness_score: number;
   demand_surprise_mw: number;
   production_surprise_mw: number;
+  regime: SampleRegime;
+}
+
+export interface ForecastVintageHistoryPoint {
+  observed_at: string;
+  vintage_id: string;
+  delivery_period: string;
+  p50_mwh: number;
+  previous_p50_mwh: number;
+  actual_mwh: number | null;
+  error_mwh: number | null;
+  source_mode: SourceMode;
+}
+
+export interface HistoricalOptimisationPoint {
+  as_of: string;
+  run_id: string;
+  first_action: string;
+  starting_soc_mwh: number;
+  projected_soc_mwh: number;
+  starting_q_mwh: number;
+  buy_mwh: number;
+  sell_mwh: number;
+  diagnostic_value_gbp: number;
 }
 
 export interface ForecastVintageChartPoint {
@@ -826,7 +850,8 @@ export interface ForecastVintageChartPoint {
 }
 
 export interface ChartPoint { label: string; value: number; timestamp: string | null; settlement_period: number | null; delivery_period: string | null; }
-export interface ChartSeries { key: string; label: string; unit: string; kind: string; points: ChartPoint[]; }
+export interface ChartAnnotation { timestamp: string | null; label: string; kind: string; value: number | null; }
+export interface ChartSeries { key: string; label: string; unit: string; kind: string; points: ChartPoint[]; flat_explanation?: string | null; region?: string; annotations?: ChartAnnotation[]; }
 export interface RiskMeasure { key: string; label: string; value: number; unit: string; status: string; }
 export interface DriverContribution { key: string; label: string; score: number; unit: string; explanation: string; }
 export interface SensitivityResult { key: string; label: string; stressed_case: string; baseline_value_gbp: number; stressed_value_gbp: number; delta_gbp: number; unit: string; explanation: string; }
@@ -945,7 +970,12 @@ export interface LiveStateSnapshot {
   lineage_values: CanonicalDataPoint[];
   history: LiveHistoryPoint[];
   forecast_vintage_series: ForecastVintageChartPoint[];
+  forecast_vintage_history: ForecastVintageHistoryPoint[];
+  optimisation_history: HistoricalOptimisationPoint[];
+  available_history_windows: string[];
   chart_series: Record<string, ChartSeries[]>;
+  chart_insights: Record<string, string>;
+  context_risk_measures: RiskMeasure[];
   warnings: string[];
 }
 
@@ -1067,7 +1097,62 @@ export interface OptimisationPeriodResult {
   downward_headroom_mw: number;
   upward_duration_coverage_h: number;
   downward_duration_coverage_h: number;
+  imbalance_expected_cost_gbp: number;
+  tail_risk_penalty_gbp: number;
+  optionality_preservation_value_gbp: number;
+  service_non_delivery_risk_gbp: number;
   values: Record<string, CanonicalDataPoint>;
+}
+
+export type AuctionPathPhase = "historical" | "current" | "optimised_future";
+
+export interface BatteryPathPoint {
+  settlement_period: number; delivery_period: string; timestamp: string; delivery_end: string; phase: AuctionPathPhase;
+  charge_mw: number; charge_mwh: number; discharge_mw: number; discharge_mwh: number;
+  soc_start_mwh: number; soc_end_mwh: number; reserve_up_mw: number; reserve_down_mw: number;
+  upward_headroom_mw: number; downward_headroom_mw: number; upward_duration_coverage_h: number; downward_duration_coverage_h: number;
+  soc_min_mwh: number; soc_max_mwh: number; terminal_soc_target_mwh: number; terminal_soc_minimum_mwh: number;
+  binding_constraints: string[]; flat_path_explanation: string | null;
+}
+
+export interface PositionPathPoint {
+  settlement_period: number; delivery_period: string; timestamp: string; delivery_end: string; phase: AuctionPathPhase;
+  generation_p10_mwh: number; generation_p50_mwh: number; generation_p90_mwh: number; demand_mw: number; residual_demand_mw: number;
+  q_before_mwh: number; buy_mwh: number; sell_mwh: number; q_after_mwh: number;
+  exposure_before_p10_mwh: number; exposure_before_p50_mwh: number; exposure_before_p90_mwh: number;
+  residual_p10_mwh: number; residual_p50_mwh: number; residual_p90_mwh: number;
+  market_action_allowed: boolean; gate_closure_at: string; gate_closure_status: string;
+  binding_constraints: string[]; one_line_reason: string;
+}
+
+export interface MarketExecutionPathPoint {
+  settlement_period: number; delivery_period: string; timestamp: string; phase: AuctionPathPhase;
+  bid_price_gbp_per_mwh: number; ask_price_gbp_per_mwh: number; wap_used_gbp_per_mwh: number | null; spread_gbp_per_mwh: number;
+  bid_depth_mwh: number; ask_depth_mwh: number; consumed_bid_depth_mwh: number; consumed_ask_depth_mwh: number; unfilled_volume_mwh: number;
+  executable_data_mode: SourceMode; reference_price_gbp_per_mwh: number; reference_price_mode: SourceMode;
+  gate_closure_at: string; market_action_allowed: boolean;
+}
+
+export interface RiskValuePathPoint {
+  settlement_period: number; delivery_period: string; timestamp: string; phase: AuctionPathPhase;
+  market_value_or_cost_gbp: number; imbalance_cost_gbp: number; tail_risk_penalty_gbp: number; degradation_cost_gbp: number;
+  terminal_soc_value_gbp: number; reserve_bm_service_value_gbp: number; optionality_lost_gbp: number;
+  total_period_contribution_gbp: number; worst_case_residual_mwh: number; binding_constraint_count: number;
+}
+
+export interface OptimisationInteractionPoint {
+  stable_sp_id: string;
+  delivery_period: string;
+  settlement_period: number;
+  display_label: string;
+  uk_delivery_time: string;
+  phase: AuctionPathPhase;
+  linked_trajectory_row_id: string;
+  tooltip_payload: Record<string, string | number | boolean | null>;
+  annotation_payload: string[];
+  source_mode: SourceMode;
+  source_provenance: string[];
+  explanation_text: string;
 }
 
 export interface OptimisationChangeSummary {
@@ -1079,6 +1164,8 @@ export interface OptimisationChangeSummary {
   soc_change_mwh: number;
   reserve_optionality_change_gbp: number;
   trajectory_change_reason: string;
+  headroom_change_mw: number;
+  largest_new_risk: string;
 }
 
 export interface OptimisationRun {
@@ -1113,6 +1200,24 @@ export interface OptimisationRun {
   readiness: OptimisationReadiness;
   lineage_values: CanonicalDataPoint[];
   chart_series: Record<string, ChartSeries[]>;
+  chart_insights: Record<string, string>;
+  auction_boundary_time: string;
+  previous_auction_time: string;
+  next_auction_time: string;
+  now_marker_time: string;
+  current_sp: number;
+  visual_window_start: string;
+  visual_window_end: string;
+  optimisation_window_start: string;
+  optimisation_window_end: string;
+  number_of_sps_shown: number;
+  number_of_sps_optimised: number;
+  battery_path_series: BatteryPathPoint[];
+  position_path_series: PositionPathPoint[];
+  market_execution_series: MarketExecutionPathPoint[];
+  risk_value_series: RiskValuePathPoint[];
+  interaction_points: OptimisationInteractionPoint[];
+  whole_path_explanation: string;
   risk_measures: RiskMeasure[];
   driver_contributions: DriverContribution[];
   sensitivities: SensitivityResult[];

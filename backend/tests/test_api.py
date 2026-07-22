@@ -60,7 +60,7 @@ def test_market_liquidity_endpoint_and_wap_lineage(client) -> None:
 
     current = client.get("/api/v1/markets/current")
     assert current.status_code == 200
-    assert len(current.json()["periods"]) == 8
+    assert len(current.json()["periods"]) > 0
 
 
 def test_battery_flexibility_endpoint_and_lineage(client) -> None:
@@ -69,7 +69,7 @@ def test_battery_flexibility_endpoint_and_lineage(client) -> None:
     battery = response.json()["battery"]
     assert battery["source_mode"] == "SAMPLE"
     assert battery["readiness"]["status"] == "DEGRADED"
-    assert len(battery["periods"]) == 8
+    assert len(battery["periods"]) > 0
     value_id = battery["periods"][0]["feasibility"]["max_discharge_value"]["value_id"]
     lineage = client.get(f"/api/v1/lineage/{value_id}")
     assert lineage.status_code == 200
@@ -187,8 +187,8 @@ def test_rolling_state_and_optimisation_lifecycle_endpoints(client) -> None:
 
     horizon = client.post("/api/v1/live-state/horizon", json={"mode": "next_auction"})
     assert horizon.status_code == 200
-    assert horizon.json()["live_state"]["state"]["horizon_warning"]
-    assert horizon.json()["optimisation"]["starting_state"]["effective_horizon_mode"] == "next_8_periods"
+    assert horizon.json()["live_state"]["state"]["horizon_warning"] is None
+    assert horizon.json()["optimisation"]["starting_state"]["effective_horizon_mode"] == "next_auction"
 
     runs = client.get("/api/v1/optimisation/runs")
     historical = client.get(f"/api/v1/optimisation/runs/{run_id}")

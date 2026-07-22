@@ -43,7 +43,7 @@ async def test_horizon_starts_from_backend_now_and_shifts_without_manual_advance
     rolling, clock = await service_at(datetime(2026, 7, 22, 12, 10, tzinfo=UTC))
     before = rolling.current_optimisation()
     assert before.starting_state.current_settlement_period == 27
-    assert before.projected_trajectory[0].settlement_period == 28
+    assert before.projected_trajectory[0].settlement_period == 27
     assert before.projected_trajectory[0].settlement_period != 1
 
     old_dump = before.model_dump(mode="json")
@@ -85,17 +85,19 @@ async def test_refresh_updates_forecast_market_and_non_flat_history_series() -> 
     assert len({point.latest_p50_mwh for point in after.forecast_vintage_series}) > 1
 
 
-def test_horizon_modes_and_explicit_auction_fallback() -> None:
+def test_next_auction_is_default_and_next_eight_is_explicit_debug_mode() -> None:
     clock = MutableClock(datetime(2026, 7, 22, 12, 10, tzinfo=UTC))
     environment = SimulatedEnvironment(clock=clock)
     live, periods, _ = environment.reset()
-    assert len(periods) == 8
-    assert live.state.horizon_mode == HorizonMode.NEXT_8_PERIODS
+    assert len(periods) > 0
+    assert live.state.horizon_mode == HorizonMode.NEXT_AUCTION
+    assert live.state.effective_horizon_mode == HorizonMode.NEXT_AUCTION
+    assert live.state.horizon_warning is None
 
-    auction_live, auction_periods, _ = environment.set_horizon_mode(HorizonMode.NEXT_AUCTION)
-    assert len(auction_periods) == 8
-    assert auction_live.state.effective_horizon_mode == HorizonMode.NEXT_8_PERIODS
-    assert auction_live.state.horizon_warning
+    debug_live, debug_periods, _ = environment.set_horizon_mode(HorizonMode.NEXT_8_PERIODS)
+    assert len(debug_periods) == 8
+    assert debug_live.state.effective_horizon_mode == HorizonMode.NEXT_8_PERIODS
+    assert debug_live.state.horizon_warning is None
 
     end_live, end_periods, _ = environment.set_horizon_mode(HorizonMode.END_OF_DAY)
     assert len(end_periods) > 8

@@ -17,6 +17,7 @@ import pyomo.environ as pyo
 from cockpit.forecast_layer import combined_quality, combined_source_mode
 from cockpit.models import (
     CanonicalDataPoint,
+    ChartAnnotation,
     ChartPoint,
     ChartSeries,
     DataLineage,
@@ -459,6 +460,10 @@ def optimise_full_action(
             downward_headroom_mw=round(cfg.charge_max_mw + net_export, 4),
             upward_duration_coverage_h=round((soc_before - cfg.e_min_mwh) * cfg.discharge_efficiency / max(reserve_up, 1e-9), 4),
             downward_duration_coverage_h=round((cfg.e_max_mwh - soc_before) / (cfg.charge_efficiency * max(reserve_down, 1e-9)), 4),
+            imbalance_expected_cost_gbp=round(expected_imbalance, 2),
+            tail_risk_penalty_gbp=round(tail, 2),
+            optionality_preservation_value_gbp=round(optionality, 2),
+            service_non_delivery_risk_gbp=round(service_risk, 2),
             values=values,
         ))
 
@@ -477,6 +482,7 @@ def optimise_full_action(
     changes = _changes(previous_run, periods, starting_state, period_results)
     drivers = _run_drivers(periods, period_results, terminal_soc, cfg)
     chart_series = _chart_series(period_results, objective, starting_state, cfg)
+    chart_insights = _chart_insights(period_results, objective, starting_state, cfg)
     risk_measures = _risk_measures(period_results, objective, terminal_soc, cfg)
     driver_contributions = _driver_contributions(periods, period_results, objective, terminal_soc, cfg, drivers)
     sensitivities = _sensitivities(period_results, objective, starting_state, cfg)
@@ -500,6 +506,7 @@ def optimise_full_action(
         readiness=readiness,
         lineage_values=lineage_values,
         chart_series=chart_series,
+        chart_insights=chart_insights,
         risk_measures=risk_measures,
         driver_contributions=driver_contributions,
         sensitivities=sensitivities,
@@ -542,7 +549,7 @@ def _chart_series(trajectory, objective, starting, cfg):
         key="objective_breakdown", label="Objective contribution", unit="GBP", kind="waterfall",
         points=[ChartPoint(label=label, value=round(value, 4)) for _, label, value in objective_components],
     )]
-    return {
+    result = {
         "action_path": [
             series("buy", "Buy", "MWh", [p.buy_mwh for p in trajectory], "bar"),
             series("sell", "Sell", "MWh", [p.sell_mwh for p in trajectory], "bar"),
@@ -588,6 +595,76 @@ def _chart_series(trajectory, objective, starting, cfg):
         ],
         "period_value": [series("period_value", "Period value", "GBP", [p.total_period_contribution_gbp for p in trajectory], "bar")],
         "objective_breakdown": objective_series,
+    }
+
+    for group in result.values():
+        for item in group:
+            values = [point.value for point in item.points]
+            if len(values) > 1 and max(values) - min(values) < 1e-8 and item.flat_explanation is None:
+                if item.key in {"reserve_up", "reserve_down"}:
+                    item.flat_explanation = "Reserve remains constant because reserve/BM availability value dominates incremental battery dispatch in this solved path."
+                elif item.key in {"up_commitment", "down_commitment"}:
+                    item.flat_explanation = "Service commitment is fixed for this SAMPLE horizon."
+                elif item.key in {"soc_min", "soc_max", "preferred_terminal", "minimum_terminal", "starting_soc"}:
+                    item.flat_explanation = "Configured battery operating or terminal reference."
+                elif item.key == "soc":
+                    item.flat_explanation = "SoC flat because the optimiser did not use the battery in this run."
+                elif abs(values[0]) < 1e-8:
+                    item.flat_explanation = f"{item.label} remains zero because the optimiser did not select this action in the solved path."
+                else:
+                    item.flat_explanation = f"{item.label} is constant across the solved horizon."
+            item.region = "future"
+
+    closed = [ChartAnnotation(timestamp=period.gate_closure_at, label=f"SP{period.settlement_period} Gate Closed", kind="gate_closure") for period in trajectory if not period.tradeable]
+    if result["market_execution"]:
+        result["market_execution"][0].annotations.extend(closed)
+    if trajectory:
+        largest_tail = max(trajectory, key=lambda period: max(abs(period.residual_p10_mwh), abs(period.residual_p90_mwh)))
+        result["exposure_fan"][0].annotations.append(ChartAnnotation(
+            timestamp=largest_tail.delivery_start,
+            label=f"Largest remaining tail exposure: SP{largest_tail.settlement_period}",
+            kind="tail_risk",
+            value=max(abs(largest_tail.residual_p10_mwh), abs(largest_tail.residual_p90_mwh)),
+        ))
+        binding = next((period for period in trajectory if period.binding_constraints), None)
+        if binding:
+            result["period_value"][0].annotations.append(ChartAnnotation(
+                timestamp=binding.delivery_start,
+                label=f"Binding: {', '.join(binding.binding_constraints[:2])}",
+                kind="binding_constraint",
+                value=binding.total_period_contribution_gbp,
+            ))
+    return result
+
+
+def _chart_insights(trajectory, objective, starting, cfg):
+    if not trajectory:
+        return {}
+    traded = sum(period.buy_mwh + period.sell_mwh for period in trajectory)
+    charged = sum(period.charge_mw * 0.5 for period in trajectory)
+    discharged = sum(period.discharge_mw * 0.5 for period in trajectory)
+    soc_delta = trajectory[-1].projected_soc_mwh - starting.starting_soc_mwh
+    reserve_variable = any(
+        abs(period.reserve_up_mw - trajectory[0].reserve_up_mw) > 1e-6 or abs(period.reserve_down_mw - trajectory[0].reserve_down_mw) > 1e-6
+        for period in trajectory[1:]
+    )
+    largest_tail = max(trajectory, key=lambda period: max(abs(period.residual_p10_mwh), abs(period.residual_p90_mwh)))
+    maximum_slippage = max((period.wap_slippage_gbp_per_mwh for period in trajectory), default=0.0)
+    return {
+        "action_path": f"The solved path trades {traded:.1f} MWh and selects {charged:.1f} MWh charge / {discharged:.1f} MWh discharge across the horizon.",
+        "soc_path": (
+            "SoC flat because the optimiser did not use the battery in this run."
+            if abs(soc_delta) < 1e-6 else f"Projected SoC moves {soc_delta:+.1f} MWh to {trajectory[-1].projected_soc_mwh:.1f} MWh by the horizon end."
+        ),
+        "reserve_path": (
+            "Reserve varies where power or duration headroom changes the marginal value of flexibility."
+            if reserve_variable else f"Reserve remains constant at {trajectory[0].reserve_up_mw:.1f} MW up / {trajectory[0].reserve_down_mw:.1f} MW down because reserve/BM value dominates dispatch."
+        ),
+        "exposure_fan": f"SP{largest_tail.settlement_period} has the largest remaining tail exposure at {max(abs(largest_tail.residual_p10_mwh), abs(largest_tail.residual_p90_mwh)):.1f} MWh.",
+        "market_execution": f"Visible depth consumption produces maximum WAP slippage of GBP {maximum_slippage:.2f}/MWh; Gate Closed periods remain non-tradable.",
+        "period_value": f"The worst settlement-period contribution is GBP {min(period.total_period_contribution_gbp for period in trajectory):.0f}.",
+        "objective_breakdown": f"Total diagnostic value is GBP {objective.total_diagnostic_value_gbp:.0f}, including explicit imbalance, tail-risk, degradation and optionality terms.",
+        "drivers": "Driver scores expose the solved forecast, system, market, SoC, reserve, terminal, tail-risk and constraint influences.",
     }
 
 
@@ -743,6 +820,7 @@ def _changes(previous, periods, starting, trajectory):
             depth_change_mwh=0, q_change_mwh=0, soc_change_mwh=0,
             reserve_optionality_change_gbp=0,
             trajectory_change_reason="Initial rolling optimisation run; no previous run exists.",
+            largest_new_risk="Initial run establishes the auction-window risk baseline.",
         )
     old = previous.inputs[0]
     new = periods[0]
@@ -750,6 +828,9 @@ def _changes(previous, periods, starting, trajectory):
     new_depth = sum(level.volume_mwh for level in [*new.bids, *new.asks])
     old_reserve = previous.projected_trajectory[0].reserve_bm_service_value_gbp
     new_reserve = trajectory[0].reserve_bm_service_value_gbp
+    old_headroom = previous.projected_trajectory[0].upward_headroom_mw + previous.projected_trajectory[0].downward_headroom_mw
+    new_headroom = trajectory[0].upward_headroom_mw + trajectory[0].downward_headroom_mw
+    largest_tail = max(trajectory, key=lambda item: max(abs(item.residual_p10_mwh), abs(item.residual_p90_mwh)))
     drivers = []
     if abs(new.generation_p50_mwh - old.generation_p50_mwh) > 0.1:
         drivers.append("forecast")
@@ -765,6 +846,8 @@ def _changes(previous, periods, starting, trajectory):
         q_change_mwh=round(new.contracted_q_mwh - old.contracted_q_mwh, 3),
         soc_change_mwh=round(starting.starting_soc_mwh - previous.starting_state.starting_soc_mwh, 3),
         reserve_optionality_change_gbp=round(new_reserve - old_reserve, 2),
+        headroom_change_mw=round(new_headroom - old_headroom, 3),
+        largest_new_risk=f"SP{largest_tail.settlement_period} tail residual {max(abs(largest_tail.residual_p10_mwh), abs(largest_tail.residual_p90_mwh)):.1f} MWh.",
         trajectory_change_reason=(
             "The selected path changed with " + ", ".join(drivers) + " updates."
             if drivers else "The main drivers were stable; only the rolling horizon shifted."

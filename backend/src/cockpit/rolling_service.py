@@ -141,13 +141,22 @@ class RollingService:
                 live.state.snapshot_id,
                 previous_run=previous,
             )
+            run = self.environment.populate_auction_window(run)
+            run.chart_series.update(self.environment.optimisation_context_series(run))
+            run.risk_measures.extend(live.context_risk_measures)
+            run.chart_insights.update({
+                "action_path": run.chart_insights.get("action_path", "The bars show the executable market and physical battery actions selected for each future settlement period."),
+                "soc_context": live.chart_insights.get("battery", "Historical, current and projected SoC share one time axis."),
+                "market_execution": live.chart_insights.get("market_price", "Executable bid, ask and WAP are shown against recent market context."),
+                "historical_context": "Selected historical context is SAMPLE and is never treated as live trading data.",
+            })
             immutable = run.model_copy(deep=True)
             self.runs[run.run_id] = immutable
             self.run_order.append(run.run_id)
             self.current_run = immutable.model_copy(deep=True)
             for point in run.lineage_values:
                 self.pipeline.lineage_index[point.value_id] = point
-            self.environment.mark_optimisation(run.run_id, run.as_of)
+            self.environment.mark_optimisation(run.run_id, run.as_of, run)
             return self.current_run.model_copy(deep=True)
 
     def current_optimisation(self) -> OptimisationRun:

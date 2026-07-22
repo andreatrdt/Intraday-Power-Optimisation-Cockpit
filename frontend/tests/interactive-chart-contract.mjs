@@ -1,0 +1,38 @@
+import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import { dirname, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
+
+const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
+const chart = readFileSync(resolve(root, "src", "CockpitChart.tsx"), "utf8");
+const page = readFileSync(resolve(root, "src", "OptimisationPage.tsx"), "utf8");
+const styles = readFileSync(resolve(root, "src", "styles.css"), "utf8");
+
+assert.equal((page.match(/<LargeChart/g) ?? []).length, 4, "exactly four main optimisation charts must remain");
+for (const label of ["Expand / full-screen", "Close full-screen", "Full auction window", "Historical only", "Future only", "Around NOW", "Next 6 SPs", "Next 12 SPs", "Pan left", "Pan right", "Reset zoom"]) assert.match(chart, new RegExp(label.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
+assert.match(chart, /type="range"/);
+assert.match(chart, /chart-brush/);
+assert.match(chart, /setHidden/);
+assert.match(chart, /aria-pressed=\{!hidden\.has/);
+assert.match(chart, /sp-crosshair/);
+assert.match(chart, /onHoverPeriod/);
+assert.match(chart, /onSelectPeriod/);
+assert.match(chart, /now-marker/);
+assert.match(chart, /forecast-region/);
+assert.match(chart, /AnnotationMark/);
+assert.match(page, /hoveredPeriod/);
+assert.match(page, /selectedPeriod/);
+assert.match(page, /SpDetailDrawer/);
+assert.match(page, /Scroll table to this SP/);
+assert.match(page, /Clear selection/);
+assert.match(page, /sp-row-highlighted/);
+assert.match(page, /batteryTracks/);
+assert.match(page, /marketTracks/);
+assert.match(page, /interaction_points/);
+assert.match(styles, /\.interactive-chart\.featured-path-chart\s*\{[^}]*min-height:\s*930px/s);
+assert.match(styles, /\.interactive-chart\.supporting-path-chart\s*\{[^}]*min-height:\s*760px/s);
+assert.match(styles, /\.interactive-chart\.chart-expanded/);
+assert.match(styles, /body\.chart-fullscreen-open/);
+assert.doesNotMatch(page, /sparkline/i);
+
+console.log("Interactive chart sizing, zoom, crosshair, selection, drawer and multi-unit track contracts passed.");
