@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { loadCockpit, loadLineage, refreshFeed } from "./api";
 import { ConnectionStatus } from "./ConnectionStatus";
+import { ProductNav } from "./ProductNav";
 import { formatLocalTime, formatTimestampWithZone } from "./time";
 import type {
   CanonicalDataPoint,
@@ -81,16 +82,7 @@ export function App() {
             <h1>Data Flow Control Room</h1>
           </div>
         </div>
-        <nav>
-          <a className="active" href="/data-flow">Data flow</a>
-          <a href="/forecast-position">Forecast &amp; position</a>
-          <a href="/market-liquidity">Market &amp; liquidity</a>
-          <a href="/battery-flexibility">Battery flexibility</a>
-          <a href="/battery-path">Battery path</a>
-          <a href="/optionality">Optionality</a>
-          <span>Optimisation</span>
-          <span>Actions</span>
-        </nav>
+        <ProductNav active="diagnostics" />
         <ConnectionStatus error={Boolean(error)} lastPoll={lastLoaded} />
       </header>
 

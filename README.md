@@ -1,12 +1,35 @@
 # Intraday Power Optimisation Cockpit
 
-Milestones 1A through 1F provide visible, inspectable data-flow, Forecast & Position,
-Market & Liquidity, Battery Flexibility, and sequential Battery Path vertical slices
-for a future UK intraday power trading cockpit.
-They deliberately do **not** contain a backtester, replay engine,
-strategy-performance page, battery co-optimiser, or trade recommendation engine.
+The product is a rolling UK intraday decision-support cockpit with two primary pages:
 
-The current application shows:
+- **Live Market State** (`/live`) shows what is changing now.
+- **Rolling Optimisation** (`/optimisation`) solves and explains the suggested future path.
+
+The earlier layer pages remain available under **Diagnostics** (`/diagnostics`) and consume the
+current rolling-state snapshot. The application deliberately contains no backtester, replay UI,
+strategy-performance page, order submission, real battery control, or trader-action workflow.
+
+The rolling product now provides:
+
+- an evolving explicit SAMPLE environment with normal, tightening, oversupply, price-spike,
+  wind-miss and demand-surprise regimes;
+- backend-time refreshes that derive the current UK settlement period, append rolling history,
+  create new forecast vintages/order books and reconcile completed SAMPLE actions;
+- a chronological data tape for forecast, market, production, demand, frequency, SoC, Q and
+  optimisation events;
+- a full-action HiGHS MILP over buy, sell, charge, discharge, SoC, upward/downward reserve and
+  scenario residual long/short variables;
+- level-slice executable bid/ask depth, WAP, Gate Closure, battery physics, reserve duration,
+  service commitments, degradation, terminal value, BM expected value and tail risk;
+- immutable in-memory optimisation runs with configurable next-eight-SP, end-of-day and explicit
+  next-auction-fallback horizons;
+- graph-led live-state history, forecast-vintage, order-book, system, portfolio and battery views;
+- large optimisation action, focused SoC, reserve, exposure-fan, execution, objective, driver and
+  sensitivity charts with units, hover values and backend-owned risk measures;
+- explicit `calculation_allowed`, `trustworthy_for_live_trading`, diagnostic-only and
+  non-executable semantics.
+
+Supporting diagnostics retain:
 
 - feed-by-feed ingestion and health;
 - explicit `LIVE`, `LATEST_AVAILABLE`, `SAMPLE`, `SYNTHETIC`, and `ERROR` modes;
@@ -31,6 +54,12 @@ The current application shows:
 - committed-service deliverability and reserved-duration diagnostics by battery path;
 - probability-weighted BM and ancillary optionality estimates, with non-delivery risk,
   activation opportunity cost and explicit non-guaranteed-value labels.
+- six integrated market/battery candidate actions with scenario residual exposure;
+- transparent execution, imbalance, tail-risk, battery opportunity, optionality and service-risk
+  cost terms;
+- a ranked **Diagnostic recommendation** that is explicitly **Not executable** and separately
+  reports calculation permission and live-trading trust;
+- one-factor counterfactual diagnostics for market, SoC, optionality and tail-risk changes.
 
 Live failures are never replaced by synthetic data. Sample and synthetic feeds are
 only loaded through their explicitly named adapters.
@@ -64,12 +93,9 @@ npm install
 npm run dev
 ```
 
-Open <http://localhost:5173/data-flow> or
-<http://localhost:5173/forecast-position> or
-<http://localhost:5173/market-liquidity> or
-<http://localhost:5173/battery-flexibility> or
-<http://localhost:5173/battery-path> or
-<http://localhost:5173/optionality>.
+Open <http://localhost:5173/live>. The main optimisation page is
+<http://localhost:5173/optimisation>; technical layer views are under
+<http://localhost:5173/diagnostics>.
 
 The frontend uses `http://127.0.0.1:8000/api/v1` by default. Override the API root
 with `VITE_API_BASE_URL` when required. The Vite server also includes a local
@@ -91,8 +117,9 @@ with `VITE_API_BASE_URL` when required. The Vite server also includes a local
 | BM/service optionality assumptions | Sample | Diagnostic valuation only |
 | Synthetic demo | Synthetic, not loaded | Excluded unless explicitly refreshed |
 
-Consequently, the initial cockpit snapshot is `DEGRADED`, while optimiser readiness
-is `BLOCKED` because executable intraday prices are unavailable.
+Consequently, the explicit SAMPLE rolling state is `DEGRADED`, calculation is allowed, and
+`trustworthy_for_live_trading` is false. The SAMPLE order book is never represented as live.
+Elexon MID/reference data is never used as executable depth.
 
 ## Verification
 
@@ -111,3 +138,7 @@ calculation and readiness rules, [docs/market-liquidity.md](docs/market-liquidit
 for Milestone 1C, and [docs/battery-flexibility.md](docs/battery-flexibility.md)
 for Milestone 1D, [docs/battery-path.md](docs/battery-path.md) for Milestone 1E,
 and [docs/optionality.md](docs/optionality.md) for Milestone 1F.
+See [docs/coordinator.md](docs/coordinator.md) for the Milestone 1G scoring,
+sign conventions, readiness and API contract.
+See [docs/rolling-optimisation.md](docs/rolling-optimisation.md) for the rolling state lifecycle,
+full action-space formulation, backend-time SAMPLE reconciliation and product APIs.

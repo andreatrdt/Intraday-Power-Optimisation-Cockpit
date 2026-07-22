@@ -6,9 +6,11 @@
   "scripts": {
     "dev": "vite --host 127.0.0.1",
     "build": "tsc -b && vite build",
-    "test": "npm run test:time-consistency && npm run test:battery-path-contract && npm run test:optionality-contract",
+    "test": "npm run test:time-consistency && npm run test:battery-path-contract && npm run test:optionality-contract && npm run test:coordinator-contract && npm run test:rolling-product-contract",
     "test:battery-path-contract": "node tests/battery-path-contract.mjs",
     "test:optionality-contract": "node tests/optionality-contract.mjs",
+    "test:coordinator-contract": "node tests/coordinator-contract.mjs",
+    "test:rolling-product-contract": "node tests/rolling-product-contract.mjs",
     "test:time-consistency": "node tests/time-consistency.mjs",
     "typecheck": "tsc -b --pretty false",
     "preview": "vite preview --host 127.0.0.1"

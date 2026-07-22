@@ -1,4 +1,4 @@
-import type { BatteryFlexibilitySnapshot, BatteryPathComparison, BatteryPathPeriodAction, BatteryPathSimulation, CockpitSnapshot, DataFlowEvent, FeedHealth, ForecastPositionSnapshot, LineageResponse, MarketSnapshot, OptionalitySnapshot } from "./types";
+import type { BatteryFlexibilitySnapshot, BatteryPathComparison, BatteryPathPeriodAction, BatteryPathSimulation, CockpitSnapshot, CoordinatorSimulationInput, CoordinatorSnapshot, DataFlowEvent, FeedHealth, ForecastPositionSnapshot, HorizonMode, LineageResponse, LiveStateSnapshot, MarketSnapshot, OptimisationRun, OptionalitySnapshot, SampleRegime } from "./types";
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL ?? "http://127.0.0.1:8000/api/v1";
 
@@ -69,4 +69,60 @@ export async function simulateOptionalityPath(actions: BatteryPathPeriodAction[]
     body: JSON.stringify({ path_name: "CUSTOM", actions }),
   });
   return response.optionality;
+}
+
+export async function loadCoordinator(): Promise<CoordinatorSnapshot> {
+  const response = await request<{ coordinator: CoordinatorSnapshot }>("/coordinator");
+  return response.coordinator;
+}
+
+export async function simulateCoordinator(settings: CoordinatorSimulationInput): Promise<CoordinatorSnapshot> {
+  const response = await request<{ coordinator: CoordinatorSnapshot }>("/coordinator/simulate", {
+    method: "POST",
+    body: JSON.stringify(settings),
+  });
+  return response.coordinator;
+}
+
+export async function loadLiveState(): Promise<LiveStateSnapshot> {
+  const response = await request<{ live_state: LiveStateSnapshot }>("/live-state");
+  return response.live_state;
+}
+
+export async function refreshLiveState(): Promise<LiveStateSnapshot> {
+  const response = await request<{ live_state: LiveStateSnapshot }>("/live-state/refresh", { method: "POST" });
+  return response.live_state;
+}
+
+export async function refreshRollingCockpit(): Promise<{ live_state: LiveStateSnapshot; optimisation: OptimisationRun }> {
+  return request("/live-state/refresh", { method: "POST" });
+}
+
+export async function resetLiveState(): Promise<{ live_state: LiveStateSnapshot; optimisation: OptimisationRun }> {
+  return request("/live-state/reset", { method: "POST" });
+}
+
+export async function setLiveRegime(regime: SampleRegime): Promise<{ live_state: LiveStateSnapshot; optimisation: OptimisationRun }> {
+  return request("/live-state/regime", {
+    method: "POST",
+    body: JSON.stringify({ regime }),
+  });
+}
+
+export async function setHorizonMode(mode: HorizonMode): Promise<{ live_state: LiveStateSnapshot; optimisation: OptimisationRun }> {
+  return request("/live-state/horizon", { method: "POST", body: JSON.stringify({ mode }) });
+}
+
+export async function loadCurrentOptimisation(): Promise<OptimisationRun> {
+  const response = await request<{ optimisation: OptimisationRun }>("/optimisation/current");
+  return response.optimisation;
+}
+
+export async function runRollingOptimisation(): Promise<{ optimisation: OptimisationRun; live_state: LiveStateSnapshot }> {
+  return request("/optimisation/run", { method: "POST" });
+}
+
+export async function loadOptimisationRuns(): Promise<OptimisationRun[]> {
+  const response = await request<{ runs: OptimisationRun[] }>("/optimisation/runs");
+  return response.runs;
 }

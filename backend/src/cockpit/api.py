@@ -9,24 +9,33 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from cockpit.battery_layer import build_battery_flexibility
 from cockpit.battery_path_layer import build_standard_path_comparison, simulate_battery_path
+from cockpit.coordinator_layer import build_coordinator_snapshot
 from cockpit.forecast_layer import build_forecast_layer
 from cockpit.market_layer import build_market_snapshot
-from cockpit.models import BatteryPathInput, RefreshRequest
+from cockpit.models import (
+    BatteryPathInput,
+    CoordinatorSimulationInput,
+    HorizonRequest,
+    RefreshRequest,
+    RegimeRequest,
+)
 from cockpit.optionality_layer import build_optionality_snapshot
 from cockpit.pipeline import PIPELINE
 from cockpit.position_layer import build_forecast_position
+from cockpit.rolling_service import ROLLING
 
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     await PIPELINE.bootstrap()
+    ROLLING.initialise()
     yield
 
 
 app = FastAPI(
     title="Intraday Power Optimisation Cockpit",
-    version="0.6.0",
-    description="Observable position, liquidity, battery-path and optionality diagnostics",
+    version="0.8.0",
+    description="Rolling non-executable UK intraday power optimisation cockpit",
     lifespan=lifespan,
 )
 app.add_middleware(
@@ -39,9 +48,74 @@ app.add_middleware(
 )
 
 
+@app.middleware("http")
+async def rolling_snapshot_context(request, call_next):
+    if ROLLING._initialised and request.url.path.startswith("/api/v1/"):
+        ROLLING.ensure_published()
+    return await call_next(request)
+
+
 @app.get("/api/health", tags=["health"])
 def health() -> dict:
-    return {"status": "ok", "milestone": "1F-bm-ancillary-optionality-diagnostics"}
+    return {"status": "ok", "milestone": "rolling-optimisation-cockpit"}
+
+
+@app.get("/api/v1/live-state", tags=["rolling-cockpit"])
+def live_state() -> dict:
+    return {"live_state": ROLLING.live_state()}
+
+
+@app.post("/api/v1/live-state/refresh", tags=["rolling-cockpit"])
+def refresh_live_state() -> dict:
+    live = ROLLING.refresh()
+    return {"live_state": live, "optimisation": ROLLING.current_optimisation()}
+
+
+@app.post("/api/v1/live-state/advance", tags=["rolling-cockpit"])
+def advance_live_state() -> dict:
+    live, run = ROLLING.advance()
+    return {"live_state": live, "optimisation": run}
+
+
+@app.post("/api/v1/live-state/reset", tags=["rolling-cockpit"])
+def reset_live_state() -> dict:
+    live, run = ROLLING.reset()
+    return {"live_state": live, "optimisation": run}
+
+
+@app.post("/api/v1/live-state/regime", tags=["rolling-cockpit"])
+def change_live_regime(request: RegimeRequest) -> dict:
+    live = ROLLING.set_regime(request.regime)
+    return {"live_state": live, "optimisation": ROLLING.current_optimisation()}
+
+
+@app.post("/api/v1/live-state/horizon", tags=["rolling-cockpit"])
+def change_horizon(request: HorizonRequest) -> dict:
+    live = ROLLING.set_horizon_mode(request.mode)
+    return {"live_state": live, "optimisation": ROLLING.current_optimisation()}
+
+
+@app.get("/api/v1/optimisation/current", tags=["rolling-optimisation"])
+def current_optimisation() -> dict:
+    return {"optimisation": ROLLING.current_optimisation()}
+
+
+@app.post("/api/v1/optimisation/run", tags=["rolling-optimisation"])
+def run_optimisation() -> dict:
+    return {"optimisation": ROLLING.run(), "live_state": ROLLING.live_state()}
+
+
+@app.get("/api/v1/optimisation/runs", tags=["rolling-optimisation"])
+def optimisation_runs() -> dict:
+    return {"runs": ROLLING.list_runs()}
+
+
+@app.get("/api/v1/optimisation/runs/{run_id}", tags=["rolling-optimisation"])
+def optimisation_run(run_id: str) -> dict:
+    run = ROLLING.get_run(run_id)
+    if run is None:
+        raise HTTPException(status_code=404, detail=f"Unknown optimisation run '{run_id}'")
+    return {"optimisation": run}
 
 
 @app.get("/api/v1/data-sources/health", tags=["data-flow"])
@@ -341,6 +415,64 @@ def optionality() -> dict:
 def simulate_optionality_path(path: BatteryPathInput) -> dict:
     custom = path.model_copy(update={"path_name": "CUSTOM"})
     return {"optionality": _optionality_result(custom).snapshot}
+
+
+def _coordinator_result(
+    snapshot_id: str | None = None,
+    settings: CoordinatorSimulationInput | None = None,
+):
+    snapshot = (
+        PIPELINE.snapshots.get(snapshot_id)
+        if snapshot_id is not None
+        else PIPELINE.current_snapshot
+    )
+    if snapshot is None:
+        detail = (
+            f"Unknown snapshot '{snapshot_id}'"
+            if snapshot_id is not None
+            else "No cockpit snapshot has been built"
+        )
+        raise HTTPException(status_code=404 if snapshot_id else 503, detail=detail)
+    has_live_book = any(
+        point.lineage.source_feed == "market_intraday"
+        and (point.metric.startswith("market_bid_") or point.metric.startswith("market_ask_"))
+        for point in snapshot.values
+    )
+    active_health_id = "market_intraday" if has_live_book else "market_order_book_sample"
+    active_health = (
+        PIPELINE.health_for(active_health_id)
+        if active_health_id in PIPELINE.adapters
+        else None
+    )
+    live_status = (
+        PIPELINE.health_for("market_intraday").source_mode
+        if "market_intraday" in PIPELINE.adapters
+        else "ERROR"
+    )
+    result = build_coordinator_snapshot(
+        snapshot,
+        settings,
+        live_provider_status=live_status,
+        active_provider_quality=active_health.quality if active_health else None,
+        active_provider_mode=active_health.source_mode if active_health else None,
+    )
+    _register_path_values(result.derived_values)
+    return result
+
+
+@app.get("/api/v1/coordinator", tags=["coordinator"])
+def coordinator() -> dict:
+    return {"coordinator": _coordinator_result().snapshot}
+
+
+@app.get("/api/v1/coordinator/{snapshot_id}", tags=["coordinator"])
+def coordinator_by_snapshot(snapshot_id: str) -> dict:
+    return {"coordinator": _coordinator_result(snapshot_id).snapshot}
+
+
+@app.post("/api/v1/coordinator/simulate", tags=["coordinator"])
+def simulate_coordinator(settings: CoordinatorSimulationInput) -> dict:
+    return {"coordinator": _coordinator_result(settings=settings).snapshot}
 
 
 @app.get("/api/v1/cockpit", tags=["snapshots"])

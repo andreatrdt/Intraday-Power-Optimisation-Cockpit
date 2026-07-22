@@ -626,3 +626,498 @@ export interface OptionalitySnapshot {
   optional_not_guaranteed: boolean;
   warnings: string[];
 }
+
+export type CoordinatorAction = "NO_ACTION" | "MARKET_ONLY" | "BATTERY_ONLY_P50" | "BATTERY_PRESERVE_FLEXIBILITY" | "MARKET_BATTERY_HYBRID" | "OPTIONALITY_PRESERVING";
+
+export interface CoordinatorScenarioResidual {
+  scenario: "P10" | "P50" | "P90";
+  exposure_before_mwh: number;
+  battery_net_export_mwh: number;
+  signed_market_trade_mwh: number;
+  residual_exposure_mwh: number;
+  direction: "LONG" | "SHORT" | "FLAT";
+  residual_value: CanonicalDataPoint;
+}
+
+export interface CoordinatorCostBreakdown {
+  market_execution_cost_gbp: number;
+  expected_imbalance_cost_gbp: number;
+  tail_risk_penalty_gbp: number;
+  battery_opportunity_cost_gbp: number;
+  optionality_lost_gbp: number;
+  service_risk_penalty_gbp: number;
+  total_diagnostic_cost_gbp: number;
+  market_execution_cost_value: CanonicalDataPoint;
+  expected_imbalance_cost_value: CanonicalDataPoint;
+  tail_risk_penalty_value: CanonicalDataPoint;
+  battery_opportunity_cost_value: CanonicalDataPoint;
+  optionality_lost_value: CanonicalDataPoint;
+  service_risk_penalty_value: CanonicalDataPoint;
+  total_diagnostic_cost_value: CanonicalDataPoint;
+}
+
+export interface CoordinatorPeriodResult {
+  settlement_period: number;
+  delivery_period: string;
+  delivery_start: string;
+  delivery_end: string;
+  exposure_before: ScenarioExposure[];
+  market_hedge_side: "BUY" | "SELL" | "NONE";
+  signed_market_trade_mwh: number;
+  market_trade_volume_mwh: number;
+  market_trade_value: CanonicalDataPoint;
+  market_wap_gbp_per_mwh: number | null;
+  market_wap_value: CanonicalDataPoint | null;
+  market_unfilled_mwh: number;
+  market_unfilled_value: CanonicalDataPoint;
+  battery_charge_mwh: number;
+  battery_discharge_mwh: number;
+  battery_net_export_mwh: number;
+  battery_action_value: CanonicalDataPoint;
+  soc_before_mwh: number;
+  soc_after_mwh: number;
+  soc_before_value: CanonicalDataPoint;
+  soc_after_value: CanonicalDataPoint;
+  residuals: CoordinatorScenarioResidual[];
+  optionality_lost_gbp: number;
+  optionality_lost_value: CanonicalDataPoint;
+  service_commitment_at_risk: boolean;
+  service_coverage_ratio: number;
+  service_risk_value: CanonicalDataPoint;
+  binding_constraints: string[];
+  cost: CoordinatorCostBreakdown;
+  warnings: string[];
+}
+
+export interface CoordinatorReadiness {
+  status: Readiness;
+  calculation_allowed: boolean;
+  trustworthy_for_live_trading: boolean;
+  diagnostic_only: boolean;
+  executable_live_ready: boolean;
+  reasons: string[];
+  critical_blockers: string[];
+}
+
+export interface CoordinatorCandidate {
+  candidate_id: string;
+  action: CoordinatorAction;
+  action_name: string;
+  market_trade_volume_mwh: number;
+  market_trade_volume_value: CanonicalDataPoint;
+  market_hedge_side: "BUY" | "SELL" | "MIXED" | "NONE";
+  market_wap_gbp_per_mwh: number | null;
+  market_wap_value: CanonicalDataPoint | null;
+  market_unfilled_mwh: number;
+  market_unfilled_value: CanonicalDataPoint;
+  battery_path: string;
+  battery_charge_mwh: number;
+  battery_charge_value: CanonicalDataPoint;
+  battery_discharge_mwh: number;
+  battery_discharge_value: CanonicalDataPoint;
+  residual_p10_mwh: number;
+  residual_p10_value: CanonicalDataPoint;
+  residual_p50_mwh: number;
+  residual_p50_value: CanonicalDataPoint;
+  residual_p90_mwh: number;
+  residual_p90_value: CanonicalDataPoint;
+  optionality_lost_gbp: number;
+  optionality_lost_value: CanonicalDataPoint;
+  service_commitments_at_risk: number;
+  cost: CoordinatorCostBreakdown;
+  readiness: CoordinatorReadiness;
+  periods: CoordinatorPeriodResult[];
+  rank: number;
+  explanation: string;
+  warning_badges: string[];
+}
+
+export interface CoordinatorSensitivity {
+  sensitivity_id: string;
+  label: string;
+  change: string;
+  baseline_preferred_action: CoordinatorAction;
+  counterfactual_preferred_action: CoordinatorAction;
+  baseline_cost_gbp: number;
+  counterfactual_cost_gbp: number;
+  changed_preference: boolean;
+  explanation: string;
+}
+
+export interface CoordinatorRecommendation {
+  label: "Diagnostic recommendation";
+  selected_candidate_id: string;
+  selected_action: CoordinatorAction;
+  selected_action_name: string;
+  diagnostic_score_gbp: number;
+  diagnostic_score_value: CanonicalDataPoint;
+  not_executable: boolean;
+  trustworthy_for_live_trading: boolean;
+  explanation: string;
+  what_would_change: string[];
+  warnings: string[];
+}
+
+export interface CoordinatorSimulationInput {
+  imbalance_price_gbp_per_mwh: number;
+  tail_risk_weight: number;
+  optionality_loss_weight: number;
+  maximum_market_hedge_volume_mwh: number | null;
+  selected_battery_path: "NO_ACTION" | "P50_COVERAGE" | "PRESERVE_FLEXIBILITY";
+  confidence_scenario: "P10" | "P50" | "P90";
+  explicit_sample_market: boolean;
+  assumption_source_mode: SourceMode;
+}
+
+export interface CoordinatorSnapshot {
+  coordinator_snapshot_id: string;
+  cockpit_snapshot_id: string;
+  as_of: string;
+  source_mode: SourceMode;
+  quality: Quality;
+  readiness: CoordinatorReadiness;
+  assumptions: CanonicalDataPoint[];
+  candidates: CoordinatorCandidate[];
+  recommendation: CoordinatorRecommendation | null;
+  sensitivities: CoordinatorSensitivity[];
+  warnings: string[];
+}
+
+export type SampleRegime = "normal" | "tightening" | "oversupply" | "price_spike" | "wind_forecast_miss" | "demand_surprise";
+export type HorizonMode = "next_auction" | "next_8_periods" | "end_of_day";
+
+export interface LiveHistoryPoint {
+  observed_at: string;
+  renewable_production_mw: number;
+  wind_mw: number;
+  solar_mw: number;
+  demand_mw: number;
+  residual_demand_mw: number;
+  forecast_p50_mw: number;
+  forecast_error_mw: number;
+  frequency_hz: number;
+  reference_price_gbp_per_mwh: number;
+  best_bid_gbp_per_mwh: number;
+  best_ask_gbp_per_mwh: number;
+  bid_depth_mwh: number;
+  ask_depth_mwh: number;
+  q_mwh: number;
+  exposure_mwh: number;
+  soc_mwh: number;
+  previous_projected_soc_mwh: number | null;
+  reserve_up_mw: number;
+  reserve_down_mw: number;
+  system_tightness_score: number;
+  demand_surprise_mw: number;
+  production_surprise_mw: number;
+}
+
+export interface ForecastVintageChartPoint {
+  settlement_period: number;
+  delivery_period: string;
+  delivery_start: string;
+  previous_p50_mwh: number;
+  latest_p50_mwh: number;
+  p10_mwh: number;
+  p90_mwh: number;
+  delta_mwh: number;
+  confidence_score: number;
+  driver: string;
+}
+
+export interface ChartPoint { label: string; value: number; timestamp: string | null; settlement_period: number | null; delivery_period: string | null; }
+export interface ChartSeries { key: string; label: string; unit: string; kind: string; points: ChartPoint[]; }
+export interface RiskMeasure { key: string; label: string; value: number; unit: string; status: string; }
+export interface DriverContribution { key: string; label: string; score: number; unit: string; explanation: string; }
+export interface SensitivityResult { key: string; label: string; stressed_case: string; baseline_value_gbp: number; stressed_value_gbp: number; delta_gbp: number; unit: string; explanation: string; }
+
+export interface RollingTrust {
+  readiness: Readiness;
+  calculation_allowed: boolean;
+  trustworthy_for_live_trading: boolean;
+  diagnostic_only: boolean;
+  reasons: string[];
+  critical_missing_inputs: string[];
+}
+
+export interface RollingEvent {
+  event_id: string;
+  occurred_at: string;
+  event_type: string;
+  message: string;
+  source_mode: SourceMode;
+  quality: Quality;
+  step: number;
+  value_id: string | null;
+}
+
+export interface RollingState {
+  current_time: string;
+  current_settlement_period: number;
+  current_settlement_label: string;
+  next_settlement_period: number;
+  next_settlement_label: string;
+  next_gate_closure_at: string;
+  minutes_to_gate_closure: number;
+  current_soc_mwh: number;
+  previous_projected_soc_mwh: number | null;
+  current_q_mwh_by_period: Record<string, number>;
+  previous_run_id: string | null;
+  latest_optimisation_run_id: string | null;
+  current_forecast_vintage_id: string;
+  previous_forecast_vintage_id: string | null;
+  current_market_snapshot_id: string;
+  previous_market_snapshot_id: string | null;
+  current_regime: SampleRegime;
+  current_step: number;
+  refresh_sequence: number;
+  state_source_mode: SourceMode;
+  quality: Quality;
+  trust: RollingTrust;
+  snapshot_id: string;
+  last_soc_change_mwh: number;
+  last_q_change_mwh: number;
+  horizon_mode: HorizonMode;
+  effective_horizon_mode: HorizonMode;
+  optimisation_horizon_start: string;
+  optimisation_horizon_end: string;
+  horizon_warning: string | null;
+  auction_calendar_configured: boolean;
+  simulation_assumption: string;
+}
+
+export interface RollingProductionDemand {
+  renewable_production_mw: number;
+  wind_mw: number;
+  solar_mw: number;
+  demand_mw: number;
+  residual_demand_mw: number;
+  production_delta_mw: number;
+  demand_delta_mw: number;
+  values: Record<string, CanonicalDataPoint>;
+}
+
+export interface RollingOrderBookLevel {
+  side: "BID" | "ASK";
+  level: number;
+  price_gbp_per_mwh: number;
+  volume_mwh: number;
+  price_value: CanonicalDataPoint;
+  volume_value: CanonicalDataPoint;
+}
+
+export interface RollingMarketState {
+  reference_price_gbp_per_mwh: number;
+  best_bid_gbp_per_mwh: number;
+  best_ask_gbp_per_mwh: number;
+  spread_gbp_per_mwh: number;
+  bid_depth_mwh: number;
+  ask_depth_mwh: number;
+  sell_wap_5_mwh: number | null;
+  sell_wap_10_mwh: number | null;
+  buy_wap_5_mwh: number | null;
+  buy_wap_10_mwh: number | null;
+  frequency_hz: number;
+  system_tightness_score: number;
+  market_regime: SampleRegime;
+  bids: RollingOrderBookLevel[];
+  asks: RollingOrderBookLevel[];
+  values: Record<string, CanonicalDataPoint>;
+}
+
+export interface RollingPortfolioBattery {
+  current_q_mwh: number;
+  current_forecast_generation_mwh: number;
+  exposure_before_action_mwh: number;
+  current_soc_mwh: number;
+  previous_projected_soc_mwh: number | null;
+  reserve_up_held_mw: number;
+  reserve_down_held_mw: number;
+  values: Record<string, CanonicalDataPoint>;
+}
+
+export interface LiveStateSnapshot {
+  state: RollingState;
+  production_demand: RollingProductionDemand;
+  market: RollingMarketState;
+  portfolio_battery: RollingPortfolioBattery;
+  events: RollingEvent[];
+  lineage_values: CanonicalDataPoint[];
+  history: LiveHistoryPoint[];
+  forecast_vintage_series: ForecastVintageChartPoint[];
+  chart_series: Record<string, ChartSeries[]>;
+  warnings: string[];
+}
+
+export interface OptimisationReadiness {
+  status: Readiness;
+  calculation_allowed: boolean;
+  trustworthy_for_live_trading: boolean;
+  diagnostic_only: boolean;
+  executable_live_ready: boolean;
+  reasons: string[];
+  critical_blockers: string[];
+}
+
+export interface OptimisationPeriodInput {
+  settlement_period: number;
+  delivery_period: string;
+  delivery_start: string;
+  delivery_end: string;
+  duration_hours: number;
+  generation_p10_mwh: number;
+  generation_p50_mwh: number;
+  generation_p90_mwh: number;
+  demand_mw: number;
+  system_tightness_score: number;
+  reference_price_gbp_per_mwh: number;
+  contracted_q_mwh: number;
+  bids: RollingOrderBookLevel[];
+  asks: RollingOrderBookLevel[];
+  gate_closure_at: string;
+  tradeable: boolean;
+  upward_commitment_mw: number;
+  downward_commitment_mw: number;
+  residual_demand_mw: number;
+  previous_p50_mwh: number;
+  forecast_confidence_score: number;
+  forecast_driver: string;
+  demand_surprise_mw: number;
+  production_surprise_mw: number;
+  values: Record<string, CanonicalDataPoint>;
+}
+
+export interface OptimisationObjectiveBreakdown {
+  market_execution_value_gbp: number;
+  imbalance_expected_cost_gbp: number;
+  tail_risk_penalty_gbp: number;
+  degradation_cost_gbp: number;
+  upward_availability_value_gbp: number;
+  downward_availability_value_gbp: number;
+  bm_expected_activation_value_gbp: number;
+  service_non_delivery_risk_gbp: number;
+  optionality_preservation_value_gbp: number;
+  terminal_soc_value_gbp: number;
+  total_diagnostic_value_gbp: number;
+  values: Record<string, CanonicalDataPoint>;
+}
+
+export interface OptimisationExplanationDrivers {
+  forecast_driver: string;
+  demand_system_driver: string;
+  price_order_book_driver: string;
+  battery_soc_driver: string;
+  reserve_bm_driver: string;
+  terminal_soc_driver: string;
+  imbalance_tail_risk_driver: string;
+  binding_constraint_driver: string;
+}
+
+export interface OptimisationPeriodResult {
+  settlement_period: number;
+  delivery_period: string;
+  delivery_start: string;
+  delivery_end: string;
+  generation_p10_mwh: number;
+  generation_p50_mwh: number;
+  generation_p90_mwh: number;
+  demand_mw: number;
+  system_tightness_score: number;
+  reference_price_gbp_per_mwh: number;
+  best_bid_gbp_per_mwh: number;
+  best_ask_gbp_per_mwh: number;
+  market_wap_gbp_per_mwh: number | null;
+  visible_depth_consumed_mwh: number;
+  q_before_action_mwh: number;
+  buy_mwh: number;
+  sell_mwh: number;
+  charge_mw: number;
+  discharge_mw: number;
+  battery_net_export_mw: number;
+  reserve_up_mw: number;
+  reserve_down_mw: number;
+  soc_before_mwh: number;
+  projected_soc_mwh: number;
+  residual_p10_mwh: number;
+  residual_p50_mwh: number;
+  residual_p90_mwh: number;
+  residual_long_mwh: number;
+  residual_short_mwh: number;
+  imbalance_risk_cost_gbp: number;
+  market_execution_value_gbp: number;
+  degradation_cost_gbp: number;
+  reserve_bm_service_value_gbp: number;
+  terminal_soc_contribution_gbp: number;
+  total_period_contribution_gbp: number;
+  binding_constraints: string[];
+  why_action: string;
+  residual_demand_mw: number;
+  exposure_before_p10_mwh: number;
+  exposure_before_p50_mwh: number;
+  exposure_before_p90_mwh: number;
+  gate_closure_at: string;
+  tradeable: boolean;
+  bid_depth_mwh: number;
+  ask_depth_mwh: number;
+  unfilled_market_volume_mwh: number;
+  wap_slippage_gbp_per_mwh: number;
+  upward_commitment_mw: number;
+  downward_commitment_mw: number;
+  upward_headroom_mw: number;
+  downward_headroom_mw: number;
+  upward_duration_coverage_h: number;
+  downward_duration_coverage_h: number;
+  values: Record<string, CanonicalDataPoint>;
+}
+
+export interface OptimisationChangeSummary {
+  forecast_change_mwh: number;
+  demand_change_mw: number;
+  price_change_gbp_per_mwh: number;
+  depth_change_mwh: number;
+  q_change_mwh: number;
+  soc_change_mwh: number;
+  reserve_optionality_change_gbp: number;
+  trajectory_change_reason: string;
+}
+
+export interface OptimisationRun {
+  run_id: string;
+  as_of: string;
+  snapshot_id: string;
+  solver: string;
+  solver_status: string;
+  horizon_length: number;
+  starting_state: {
+    current_time: string;
+    current_settlement_period: number;
+    starting_soc_mwh: number;
+    starting_q_mwh: number;
+    forecast_vintage_id: string;
+    market_snapshot_id: string;
+    regime: SampleRegime;
+    source_mode: SourceMode;
+    horizon_mode: HorizonMode;
+    effective_horizon_mode: HorizonMode;
+    horizon_start: string;
+    horizon_end: string;
+  };
+  inputs: OptimisationPeriodInput[];
+  projected_trajectory: OptimisationPeriodResult[];
+  objective_breakdown: OptimisationObjectiveBreakdown;
+  objective_value_gbp: number;
+  terminal_soc_mwh: number;
+  full_cycle_equivalents: number;
+  explanation_drivers: OptimisationExplanationDrivers;
+  change_since_previous: OptimisationChangeSummary;
+  readiness: OptimisationReadiness;
+  lineage_values: CanonicalDataPoint[];
+  chart_series: Record<string, ChartSeries[]>;
+  risk_measures: RiskMeasure[];
+  driver_contributions: DriverContribution[];
+  sensitivities: SensitivityResult[];
+  sanity_warnings: string[];
+  warnings: string[];
+  immutable: boolean;
+  not_executable: boolean;
+}

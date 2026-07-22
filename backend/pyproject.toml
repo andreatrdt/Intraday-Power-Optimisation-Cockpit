@@ -1,12 +1,14 @@
 [project]
 name = "intraday-power-cockpit"
-version = "0.6.0"
-description = "Lineage-first position, battery-path and BM/ancillary optionality diagnostics for a UK intraday power cockpit"
+version = "0.8.0"
+description = "Rolling UK intraday power optimisation cockpit with explicit non-executable diagnostics"
 requires-python = ">=3.12"
 dependencies = [
   "fastapi>=0.116,<1",
   "httpx>=0.28,<1",
+  "highspy>=1.11,<2",
   "pydantic>=2.11,<3",
+  "pyomo>=6.9,<7",
   "tzdata>=2026.1",
   "uvicorn[standard]>=0.35,<1",
 ]

@@ -7,7 +7,8 @@ def test_data_flow_endpoints_are_inspectable(client) -> None:
     assert snapshot.status_code == 200
     body = snapshot.json()["snapshot"]
     assert body["status"] == "DEGRADED"
-    assert body["optimiser_readiness"]["status"] == "BLOCKED"
+    assert body["optimiser_readiness"]["status"] == "DEGRADED"
+    assert body["optimiser_readiness"]["allowed"] is True
 
     value_id = body["values"][0]["value_id"]
     lineage = client.get(f"/api/v1/lineage/{value_id}")
@@ -128,3 +129,74 @@ def test_optionality_standard_custom_and_lineage_endpoints(client) -> None:
     lineage = client.get(f"/api/v1/lineage/{value_id}")
     assert lineage.status_code == 200
     assert lineage.json()["value"]["lineage"]["source_feed"] == "optionality_diagnostic"
+
+
+def test_coordinator_current_historic_simulation_and_lineage_endpoints(client) -> None:
+    response = client.get("/api/v1/coordinator")
+    assert response.status_code == 200
+    coordinator = response.json()["coordinator"]
+    assert coordinator["readiness"]["status"] == "DEGRADED"
+    assert len(coordinator["candidates"]) == 6
+    assert coordinator["recommendation"]["label"] == "Diagnostic recommendation"
+    assert coordinator["recommendation"]["not_executable"] is True
+
+    historic = client.get(f"/api/v1/coordinator/{coordinator['cockpit_snapshot_id']}")
+    assert historic.status_code == 200
+    assert historic.json()["coordinator"]["cockpit_snapshot_id"] == coordinator["cockpit_snapshot_id"]
+
+    simulation = client.post("/api/v1/coordinator/simulate", json={
+        "imbalance_price_gbp_per_mwh": 175,
+        "tail_risk_weight": 0.8,
+        "optionality_loss_weight": 2,
+        "maximum_market_hedge_volume_mwh": 3,
+        "selected_battery_path": "P50_COVERAGE",
+        "confidence_scenario": "P10",
+        "explicit_sample_market": True,
+        "assumption_source_mode": "SAMPLE",
+    })
+    assert simulation.status_code == 200
+    simulated = simulation.json()["coordinator"]
+    assert next(item for item in simulated["assumptions"] if item["metric"] == "coordinator_confidence_scenario")["value"] == "P10"
+
+    value_id = coordinator["recommendation"]["diagnostic_score_value"]["value_id"]
+    lineage = client.get(f"/api/v1/lineage/{value_id}")
+    assert lineage.status_code == 200
+    assert lineage.json()["value"]["lineage"]["source_feed"] == "integrated_coordinator"
+
+
+def test_rolling_state_and_optimisation_lifecycle_endpoints(client) -> None:
+    reset = client.post("/api/v1/live-state/reset")
+    assert reset.status_code == 200
+    initial = reset.json()
+    assert initial["live_state"]["state"]["state_source_mode"] == "SAMPLE"
+    assert initial["optimisation"]["solver_status"] == "optimal"
+
+    refreshed = client.post("/api/v1/live-state/refresh")
+    assert refreshed.status_code == 200
+    assert refreshed.json()["live_state"]["state"]["current_forecast_vintage_id"] != initial["live_state"]["state"]["current_forecast_vintage_id"]
+    assert refreshed.json()["optimisation"]["run_id"] != initial["optimisation"]["run_id"]
+
+    regime = client.post("/api/v1/live-state/regime", json={"regime": "tightening"})
+    assert regime.status_code == 200
+    assert regime.json()["live_state"]["state"]["current_regime"] == "tightening"
+
+    solved = client.post("/api/v1/optimisation/run")
+    assert solved.status_code == 200
+    run_id = solved.json()["optimisation"]["run_id"]
+    assert solved.json()["optimisation"]["not_executable"] is True
+
+    horizon = client.post("/api/v1/live-state/horizon", json={"mode": "next_auction"})
+    assert horizon.status_code == 200
+    assert horizon.json()["live_state"]["state"]["horizon_warning"]
+    assert horizon.json()["optimisation"]["starting_state"]["effective_horizon_mode"] == "next_8_periods"
+
+    runs = client.get("/api/v1/optimisation/runs")
+    historical = client.get(f"/api/v1/optimisation/runs/{run_id}")
+    current = client.get("/api/v1/optimisation/current")
+    assert runs.status_code == historical.status_code == current.status_code == 200
+    assert any(item["run_id"] == run_id for item in runs.json()["runs"])
+
+    point = historical.json()["optimisation"]["lineage_values"][0]
+    lineage = client.get(f"/api/v1/lineage/{point['value_id']}")
+    assert lineage.status_code == 200
+    assert lineage.json()["value"]["lineage"]["source_feed"] == "full_action_optimiser"

@@ -723,3 +723,566 @@ class OptionalitySnapshot(BaseModel):
     path_impacts: list[OptionalityPathImpact] = Field(default_factory=list)
     optional_not_guaranteed: bool = True
     warnings: list[str] = Field(default_factory=list)
+
+
+class CoordinatorAction(StrEnum):
+    NO_ACTION = "NO_ACTION"
+    MARKET_ONLY = "MARKET_ONLY"
+    BATTERY_ONLY_P50 = "BATTERY_ONLY_P50"
+    BATTERY_PRESERVE_FLEXIBILITY = "BATTERY_PRESERVE_FLEXIBILITY"
+    MARKET_BATTERY_HYBRID = "MARKET_BATTERY_HYBRID"
+    OPTIONALITY_PRESERVING = "OPTIONALITY_PRESERVING"
+
+
+class CoordinatorScenarioResidual(BaseModel):
+    scenario: str
+    exposure_before_mwh: float
+    battery_net_export_mwh: float
+    signed_market_trade_mwh: float
+    residual_exposure_mwh: float
+    direction: str
+    residual_value: CanonicalDataPoint
+
+
+class CoordinatorCostBreakdown(BaseModel):
+    market_execution_cost_gbp: float
+    expected_imbalance_cost_gbp: float
+    tail_risk_penalty_gbp: float
+    battery_opportunity_cost_gbp: float
+    optionality_lost_gbp: float
+    service_risk_penalty_gbp: float
+    total_diagnostic_cost_gbp: float
+    market_execution_cost_value: CanonicalDataPoint
+    expected_imbalance_cost_value: CanonicalDataPoint
+    tail_risk_penalty_value: CanonicalDataPoint
+    battery_opportunity_cost_value: CanonicalDataPoint
+    optionality_lost_value: CanonicalDataPoint
+    service_risk_penalty_value: CanonicalDataPoint
+    total_diagnostic_cost_value: CanonicalDataPoint
+
+
+class CoordinatorPeriodResult(BaseModel):
+    settlement_period: int
+    delivery_period: str
+    delivery_start: datetime
+    delivery_end: datetime
+    exposure_before: list[ScenarioExposure]
+    market_hedge_side: str
+    signed_market_trade_mwh: float
+    market_trade_volume_mwh: float
+    market_trade_value: CanonicalDataPoint
+    market_wap_gbp_per_mwh: float | None = None
+    market_wap_value: CanonicalDataPoint | None = None
+    market_unfilled_mwh: float
+    market_unfilled_value: CanonicalDataPoint
+    battery_charge_mwh: float
+    battery_discharge_mwh: float
+    battery_net_export_mwh: float
+    battery_action_value: CanonicalDataPoint
+    soc_before_mwh: float
+    soc_after_mwh: float
+    soc_before_value: CanonicalDataPoint
+    soc_after_value: CanonicalDataPoint
+    residuals: list[CoordinatorScenarioResidual]
+    optionality_lost_gbp: float
+    optionality_lost_value: CanonicalDataPoint
+    service_commitment_at_risk: bool
+    service_coverage_ratio: float
+    service_risk_value: CanonicalDataPoint
+    binding_constraints: list[str] = Field(default_factory=list)
+    cost: CoordinatorCostBreakdown
+    warnings: list[str] = Field(default_factory=list)
+
+
+class CoordinatorReadiness(BaseModel):
+    status: SnapshotStatus
+    calculation_allowed: bool
+    trustworthy_for_live_trading: bool
+    diagnostic_only: bool = True
+    executable_live_ready: bool = False
+    reasons: list[str] = Field(default_factory=list)
+    critical_blockers: list[str] = Field(default_factory=list)
+
+
+class CoordinatorCandidate(BaseModel):
+    candidate_id: str
+    action: CoordinatorAction
+    action_name: str
+    market_trade_volume_mwh: float
+    market_trade_volume_value: CanonicalDataPoint
+    market_hedge_side: str
+    market_wap_gbp_per_mwh: float | None = None
+    market_wap_value: CanonicalDataPoint | None = None
+    market_unfilled_mwh: float
+    market_unfilled_value: CanonicalDataPoint
+    battery_path: str
+    battery_charge_mwh: float
+    battery_charge_value: CanonicalDataPoint
+    battery_discharge_mwh: float
+    battery_discharge_value: CanonicalDataPoint
+    residual_p10_mwh: float
+    residual_p10_value: CanonicalDataPoint
+    residual_p50_mwh: float
+    residual_p50_value: CanonicalDataPoint
+    residual_p90_mwh: float
+    residual_p90_value: CanonicalDataPoint
+    optionality_lost_gbp: float
+    optionality_lost_value: CanonicalDataPoint
+    service_commitments_at_risk: int
+    cost: CoordinatorCostBreakdown
+    readiness: CoordinatorReadiness
+    periods: list[CoordinatorPeriodResult] = Field(default_factory=list)
+    rank: int = 0
+    explanation: str
+    warning_badges: list[str] = Field(default_factory=list)
+
+
+class CoordinatorSensitivity(BaseModel):
+    sensitivity_id: str
+    label: str
+    change: str
+    baseline_preferred_action: CoordinatorAction
+    counterfactual_preferred_action: CoordinatorAction
+    baseline_cost_gbp: float
+    counterfactual_cost_gbp: float
+    changed_preference: bool
+    explanation: str
+
+
+class CoordinatorRecommendation(BaseModel):
+    label: str = "Diagnostic recommendation"
+    selected_candidate_id: str
+    selected_action: CoordinatorAction
+    selected_action_name: str
+    diagnostic_score_gbp: float
+    diagnostic_score_value: CanonicalDataPoint
+    not_executable: bool = True
+    trustworthy_for_live_trading: bool
+    explanation: str
+    what_would_change: list[str] = Field(default_factory=list)
+    warnings: list[str] = Field(default_factory=list)
+
+
+class CoordinatorSimulationInput(BaseModel):
+    imbalance_price_gbp_per_mwh: float = Field(default=125.0, ge=0)
+    tail_risk_weight: float = Field(default=0.35, ge=0)
+    optionality_loss_weight: float = Field(default=1.0, ge=0)
+    maximum_market_hedge_volume_mwh: float | None = Field(default=None, ge=0)
+    selected_battery_path: str = "PRESERVE_FLEXIBILITY"
+    confidence_scenario: str = "P50"
+    explicit_sample_market: bool = True
+    assumption_source_mode: SourceMode = SourceMode.SAMPLE
+
+
+class CoordinatorSnapshot(BaseModel):
+    coordinator_snapshot_id: str
+    cockpit_snapshot_id: str
+    as_of: datetime
+    source_mode: SourceMode
+    quality: Quality
+    readiness: CoordinatorReadiness
+    assumptions: list[CanonicalDataPoint] = Field(default_factory=list)
+    candidates: list[CoordinatorCandidate] = Field(default_factory=list)
+    recommendation: CoordinatorRecommendation | None = None
+    sensitivities: list[CoordinatorSensitivity] = Field(default_factory=list)
+    warnings: list[str] = Field(default_factory=list)
+
+
+class SampleRegime(StrEnum):
+    NORMAL = "normal"
+    TIGHTENING = "tightening"
+    OVERSUPPLY = "oversupply"
+    PRICE_SPIKE = "price_spike"
+    WIND_FORECAST_MISS = "wind_forecast_miss"
+    DEMAND_SURPRISE = "demand_surprise"
+
+
+class HorizonMode(StrEnum):
+    NEXT_AUCTION = "next_auction"
+    NEXT_8_PERIODS = "next_8_periods"
+    END_OF_DAY = "end_of_day"
+
+
+class HorizonRequest(BaseModel):
+    mode: HorizonMode
+
+
+class LiveHistoryPoint(BaseModel):
+    observed_at: datetime
+    renewable_production_mw: float
+    wind_mw: float
+    solar_mw: float
+    demand_mw: float
+    residual_demand_mw: float
+    forecast_p50_mw: float
+    forecast_error_mw: float
+    frequency_hz: float
+    reference_price_gbp_per_mwh: float
+    best_bid_gbp_per_mwh: float
+    best_ask_gbp_per_mwh: float
+    bid_depth_mwh: float
+    ask_depth_mwh: float
+    q_mwh: float
+    exposure_mwh: float
+    soc_mwh: float
+    previous_projected_soc_mwh: float | None = None
+    reserve_up_mw: float
+    reserve_down_mw: float
+    system_tightness_score: float
+    demand_surprise_mw: float
+    production_surprise_mw: float
+
+
+class ForecastVintageChartPoint(BaseModel):
+    settlement_period: int
+    delivery_period: str
+    delivery_start: datetime
+    previous_p50_mwh: float
+    latest_p50_mwh: float
+    p10_mwh: float
+    p90_mwh: float
+    delta_mwh: float
+    confidence_score: float
+    driver: str
+
+
+class ChartPoint(BaseModel):
+    label: str
+    value: float
+    timestamp: datetime | None = None
+    settlement_period: int | None = None
+    delivery_period: str | None = None
+
+
+class ChartSeries(BaseModel):
+    key: str
+    label: str
+    unit: str
+    kind: str = "line"
+    points: list[ChartPoint] = Field(default_factory=list)
+
+
+class RiskMeasure(BaseModel):
+    key: str
+    label: str
+    value: float
+    unit: str
+    status: str = "INFO"
+
+
+class DriverContribution(BaseModel):
+    key: str
+    label: str
+    score: float
+    unit: str = "score"
+    explanation: str
+
+
+class SensitivityResult(BaseModel):
+    key: str
+    label: str
+    stressed_case: str
+    baseline_value_gbp: float
+    stressed_value_gbp: float
+    delta_gbp: float
+    unit: str = "GBP"
+    explanation: str
+
+
+class RollingTrust(BaseModel):
+    readiness: SnapshotStatus
+    calculation_allowed: bool
+    trustworthy_for_live_trading: bool
+    diagnostic_only: bool = True
+    reasons: list[str] = Field(default_factory=list)
+    critical_missing_inputs: list[str] = Field(default_factory=list)
+
+
+class RollingEvent(BaseModel):
+    event_id: str
+    occurred_at: datetime
+    event_type: str
+    message: str
+    source_mode: SourceMode
+    quality: Quality
+    step: int
+    value_id: str | None = None
+
+
+class RollingState(BaseModel):
+    current_time: datetime
+    current_settlement_period: int
+    current_settlement_label: str
+    next_settlement_period: int
+    next_settlement_label: str
+    next_gate_closure_at: datetime
+    minutes_to_gate_closure: float
+    current_soc_mwh: float
+    previous_projected_soc_mwh: float | None = None
+    current_q_mwh_by_period: dict[str, float] = Field(default_factory=dict)
+    previous_run_id: str | None = None
+    latest_optimisation_run_id: str | None = None
+    current_forecast_vintage_id: str
+    previous_forecast_vintage_id: str | None = None
+    current_market_snapshot_id: str
+    previous_market_snapshot_id: str | None = None
+    current_regime: SampleRegime
+    current_step: int
+    refresh_sequence: int
+    state_source_mode: SourceMode
+    quality: Quality
+    trust: RollingTrust
+    snapshot_id: str
+    last_soc_change_mwh: float = 0.0
+    last_q_change_mwh: float = 0.0
+    horizon_mode: HorizonMode = HorizonMode.NEXT_8_PERIODS
+    effective_horizon_mode: HorizonMode = HorizonMode.NEXT_8_PERIODS
+    optimisation_horizon_start: datetime
+    optimisation_horizon_end: datetime
+    horizon_warning: str | None = None
+    auction_calendar_configured: bool = False
+    simulation_assumption: str = (
+        "SAMPLE simulation assumes previous model actions are followed. This is not real execution or live control."
+    )
+
+
+class RollingProductionDemand(BaseModel):
+    renewable_production_mw: float
+    wind_mw: float
+    solar_mw: float
+    demand_mw: float
+    residual_demand_mw: float
+    production_delta_mw: float
+    demand_delta_mw: float
+    values: dict[str, CanonicalDataPoint] = Field(default_factory=dict)
+
+
+class RollingOrderBookLevel(BaseModel):
+    side: str
+    level: int
+    price_gbp_per_mwh: float
+    volume_mwh: float
+    price_value: CanonicalDataPoint
+    volume_value: CanonicalDataPoint
+
+
+class RollingMarketState(BaseModel):
+    reference_price_gbp_per_mwh: float
+    best_bid_gbp_per_mwh: float
+    best_ask_gbp_per_mwh: float
+    spread_gbp_per_mwh: float
+    bid_depth_mwh: float
+    ask_depth_mwh: float
+    sell_wap_5_mwh: float | None = None
+    sell_wap_10_mwh: float | None = None
+    buy_wap_5_mwh: float | None = None
+    buy_wap_10_mwh: float | None = None
+    frequency_hz: float
+    system_tightness_score: float
+    market_regime: SampleRegime
+    bids: list[RollingOrderBookLevel] = Field(default_factory=list)
+    asks: list[RollingOrderBookLevel] = Field(default_factory=list)
+    values: dict[str, CanonicalDataPoint] = Field(default_factory=dict)
+
+
+class RollingPortfolioBattery(BaseModel):
+    current_q_mwh: float
+    current_forecast_generation_mwh: float
+    exposure_before_action_mwh: float
+    current_soc_mwh: float
+    previous_projected_soc_mwh: float | None = None
+    reserve_up_held_mw: float
+    reserve_down_held_mw: float
+    values: dict[str, CanonicalDataPoint] = Field(default_factory=dict)
+
+
+class LiveStateSnapshot(BaseModel):
+    state: RollingState
+    production_demand: RollingProductionDemand
+    market: RollingMarketState
+    portfolio_battery: RollingPortfolioBattery
+    events: list[RollingEvent] = Field(default_factory=list)
+    lineage_values: list[CanonicalDataPoint] = Field(default_factory=list)
+    history: list[LiveHistoryPoint] = Field(default_factory=list)
+    forecast_vintage_series: list[ForecastVintageChartPoint] = Field(default_factory=list)
+    chart_series: dict[str, list[ChartSeries]] = Field(default_factory=dict)
+    warnings: list[str] = Field(default_factory=list)
+
+
+class RegimeRequest(BaseModel):
+    regime: SampleRegime
+
+
+class OptimisationReadiness(BaseModel):
+    status: SnapshotStatus
+    calculation_allowed: bool
+    trustworthy_for_live_trading: bool
+    diagnostic_only: bool = True
+    executable_live_ready: bool = False
+    reasons: list[str] = Field(default_factory=list)
+    critical_blockers: list[str] = Field(default_factory=list)
+
+
+class OptimisationStartingState(BaseModel):
+    current_time: datetime
+    current_settlement_period: int
+    starting_soc_mwh: float
+    starting_q_mwh: float
+    forecast_vintage_id: str
+    market_snapshot_id: str
+    regime: SampleRegime
+    source_mode: SourceMode
+    horizon_mode: HorizonMode = HorizonMode.NEXT_8_PERIODS
+    effective_horizon_mode: HorizonMode = HorizonMode.NEXT_8_PERIODS
+    horizon_start: datetime
+    horizon_end: datetime
+
+
+class OptimisationPeriodInput(BaseModel):
+    settlement_period: int
+    delivery_period: str
+    delivery_start: datetime
+    delivery_end: datetime
+    duration_hours: float
+    generation_p10_mwh: float
+    generation_p50_mwh: float
+    generation_p90_mwh: float
+    demand_mw: float
+    system_tightness_score: float
+    reference_price_gbp_per_mwh: float
+    contracted_q_mwh: float
+    bids: list[RollingOrderBookLevel] = Field(default_factory=list)
+    asks: list[RollingOrderBookLevel] = Field(default_factory=list)
+    gate_closure_at: datetime
+    tradeable: bool
+    upward_commitment_mw: float
+    downward_commitment_mw: float
+    residual_demand_mw: float = 0.0
+    previous_p50_mwh: float = 0.0
+    forecast_confidence_score: float = 0.0
+    forecast_driver: str = "normal"
+    demand_surprise_mw: float = 0.0
+    production_surprise_mw: float = 0.0
+    values: dict[str, CanonicalDataPoint] = Field(default_factory=dict)
+
+
+class OptimisationObjectiveBreakdown(BaseModel):
+    market_execution_value_gbp: float = 0.0
+    imbalance_expected_cost_gbp: float = 0.0
+    tail_risk_penalty_gbp: float = 0.0
+    degradation_cost_gbp: float = 0.0
+    upward_availability_value_gbp: float = 0.0
+    downward_availability_value_gbp: float = 0.0
+    bm_expected_activation_value_gbp: float = 0.0
+    service_non_delivery_risk_gbp: float = 0.0
+    optionality_preservation_value_gbp: float = 0.0
+    terminal_soc_value_gbp: float = 0.0
+    total_diagnostic_value_gbp: float = 0.0
+    values: dict[str, CanonicalDataPoint] = Field(default_factory=dict)
+
+
+class OptimisationExplanationDrivers(BaseModel):
+    forecast_driver: str
+    demand_system_driver: str
+    price_order_book_driver: str
+    battery_soc_driver: str
+    reserve_bm_driver: str
+    terminal_soc_driver: str
+    imbalance_tail_risk_driver: str
+    binding_constraint_driver: str
+
+
+class OptimisationPeriodResult(BaseModel):
+    settlement_period: int
+    delivery_period: str
+    delivery_start: datetime
+    delivery_end: datetime
+    generation_p10_mwh: float
+    generation_p50_mwh: float
+    generation_p90_mwh: float
+    demand_mw: float
+    system_tightness_score: float
+    reference_price_gbp_per_mwh: float
+    best_bid_gbp_per_mwh: float
+    best_ask_gbp_per_mwh: float
+    market_wap_gbp_per_mwh: float | None = None
+    visible_depth_consumed_mwh: float
+    q_before_action_mwh: float
+    buy_mwh: float
+    sell_mwh: float
+    charge_mw: float
+    discharge_mw: float
+    battery_net_export_mw: float
+    reserve_up_mw: float
+    reserve_down_mw: float
+    soc_before_mwh: float
+    projected_soc_mwh: float
+    residual_p10_mwh: float
+    residual_p50_mwh: float
+    residual_p90_mwh: float
+    residual_long_mwh: float
+    residual_short_mwh: float
+    imbalance_risk_cost_gbp: float
+    market_execution_value_gbp: float
+    degradation_cost_gbp: float
+    reserve_bm_service_value_gbp: float
+    terminal_soc_contribution_gbp: float
+    total_period_contribution_gbp: float
+    binding_constraints: list[str] = Field(default_factory=list)
+    why_action: str
+    residual_demand_mw: float = 0.0
+    exposure_before_p10_mwh: float = 0.0
+    exposure_before_p50_mwh: float = 0.0
+    exposure_before_p90_mwh: float = 0.0
+    gate_closure_at: datetime
+    tradeable: bool
+    bid_depth_mwh: float = 0.0
+    ask_depth_mwh: float = 0.0
+    unfilled_market_volume_mwh: float = 0.0
+    wap_slippage_gbp_per_mwh: float = 0.0
+    upward_commitment_mw: float = 0.0
+    downward_commitment_mw: float = 0.0
+    upward_headroom_mw: float = 0.0
+    downward_headroom_mw: float = 0.0
+    upward_duration_coverage_h: float = 0.0
+    downward_duration_coverage_h: float = 0.0
+    values: dict[str, CanonicalDataPoint] = Field(default_factory=dict)
+
+
+class OptimisationChangeSummary(BaseModel):
+    forecast_change_mwh: float
+    demand_change_mw: float
+    price_change_gbp_per_mwh: float
+    depth_change_mwh: float
+    q_change_mwh: float
+    soc_change_mwh: float
+    reserve_optionality_change_gbp: float
+    trajectory_change_reason: str
+
+
+class OptimisationRun(BaseModel):
+    run_id: str
+    as_of: datetime
+    snapshot_id: str
+    solver: str
+    solver_status: str
+    horizon_length: int
+    starting_state: OptimisationStartingState
+    inputs: list[OptimisationPeriodInput] = Field(default_factory=list)
+    projected_trajectory: list[OptimisationPeriodResult] = Field(default_factory=list)
+    objective_breakdown: OptimisationObjectiveBreakdown
+    objective_value_gbp: float
+    terminal_soc_mwh: float
+    full_cycle_equivalents: float
+    explanation_drivers: OptimisationExplanationDrivers
+    change_since_previous: OptimisationChangeSummary
+    readiness: OptimisationReadiness
+    lineage_values: list[CanonicalDataPoint] = Field(default_factory=list)
+    chart_series: dict[str, list[ChartSeries]] = Field(default_factory=dict)
+    risk_measures: list[RiskMeasure] = Field(default_factory=list)
+    driver_contributions: list[DriverContribution] = Field(default_factory=list)
+    sensitivities: list[SensitivityResult] = Field(default_factory=list)
+    sanity_warnings: list[str] = Field(default_factory=list)
+    warnings: list[str] = Field(default_factory=list)
+    immutable: bool = True
+    not_executable: bool = True

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Badge, LineageDrawer } from "./App";
 import { loadLineage, loadOptionality, simulateOptionalityPath } from "./api";
 import { ConnectionStatus } from "./ConnectionStatus";
+import { ProductNav } from "./ProductNav";
 import { formatUkMarketTime } from "./time";
 import type { BatteryPathPeriodAction, CanonicalDataPoint, LineageResponse, OptionalityAssumption, OptionalityPathImpact, OptionalityPeriodDiagnostic, OptionalitySnapshot, ServiceCommitment } from "./types";
 
@@ -72,7 +73,7 @@ export function OptionalityPage() {
   return <div className="app-shell">
     <header className="topbar">
       <div className="brand-lockup"><div className="brand-mark">IP</div><div><p className="eyebrow">UK INTRADAY POWER</p><h1>BM &amp; Ancillary Optionality</h1></div></div>
-      <nav><a href="/data-flow">Data flow</a><a href="/forecast-position">Forecast &amp; position</a><a href="/market-liquidity">Market &amp; liquidity</a><a href="/battery-flexibility">Battery flexibility</a><a href="/battery-path">Battery path</a><a className="active" href="/optionality">Optionality</a><span>Optimisation</span><span>Actions</span></nav>
+      <ProductNav active="diagnostics" />
       <ConnectionStatus error={Boolean(error)} lastPoll={lastPoll} />
     </header>
     <main>
