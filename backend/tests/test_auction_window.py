@@ -42,7 +42,7 @@ def test_auction_window_is_dst_aware() -> None:
 
 @pytest.mark.asyncio
 async def test_run_exposes_complete_auction_window_and_chart_ready_paths() -> None:
-    as_of = datetime(2026, 7, 22, 9, 30, tzinfo=UTC)
+    as_of = datetime(2026, 7, 21, 16, 10, tzinfo=UTC)
     pipeline = DataFlowPipeline()
     await pipeline.bootstrap()
     rolling = RollingService(pipeline, SimulatedEnvironment(clock=lambda: as_of))
@@ -66,11 +66,11 @@ async def test_run_exposes_complete_auction_window_and_chart_ready_paths() -> No
     assert all(point.tooltip_payload.get("position_reason") for point in run.interaction_points)
     assert all(point.tooltip_payload.get("battery_reason") for point in run.interaction_points)
     assert all(point.source_mode == SourceMode.SAMPLE for point in run.interaction_points)
-    assert any(point.phase == "historical" for point in run.position_path_series)
+    assert any(point.phase == "historical_simulated" for point in run.position_path_series)
     assert any(point.phase == "current" for point in run.position_path_series)
     assert any(point.phase == "optimised_future" for point in run.position_path_series)
 
-    historical_ids = {point.delivery_period for point in run.position_path_series if point.phase == "historical"}
+    historical_ids = {point.delivery_period for point in run.position_path_series if point.phase.startswith("historical_")}
     solved_ids = {point.delivery_period for point in run.projected_trajectory}
     assert historical_ids.isdisjoint(solved_ids)
     assert all(point.timestamp >= run.visual_window_start for point in run.position_path_series)
@@ -109,3 +109,10 @@ async def test_run_exposes_complete_auction_window_and_chart_ready_paths() -> No
     if sum(point.charge_mwh + point.discharge_mwh for point in future_battery) < 1e-6:
         assert all(point.flat_path_explanation and "SoC flat" in point.flat_path_explanation for point in future_battery)
     assert run.whole_path_explanation
+    assert run.rolling_run_ledger
+    assert run.historical_history_available
+    assert run.historical_soc_reconciled
+    assert run.historical_q_reconciled
+    assert not run.reconciliation_warnings
+    assert all(item.optimisation_run_id for item in run.rolling_run_ledger)
+    assert all(item.lineage_value_ids for item in run.rolling_run_ledger)

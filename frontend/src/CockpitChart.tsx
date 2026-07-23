@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { formatYAxisTick } from "./chartDomain";
 import type { AuctionPathPhase, ChartAnnotation, ChartPoint, ChartSeries } from "./types";
 
 const colours = ["var(--chart-series-1)", "var(--chart-series-2)", "var(--chart-series-3)", "var(--chart-series-4)", "var(--chart-series-5)", "var(--chart-series-6)", "var(--chart-series-7)", "var(--chart-series-8)"];
@@ -130,7 +131,7 @@ export function LargeChart({
   };
   const quickRange = (mode: "full" | "history" | "future" | "now" | "next6" | "next12") => {
     const last = allPeriods.length - 1;
-    const historical = allPeriods.map((period, index) => ({ period, index })).filter(({ period }) => period.phase === "historical");
+    const historical = allPeriods.map((period, index) => ({ period, index })).filter(({ period }) => period.phase.startsWith("historical_"));
     const future = allPeriods.map((period, index) => ({ period, index })).filter(({ period }) => period.phase === "optimised_future");
     const nowIndex = Math.max(0, allPeriods.findIndex((period) => period.phase === "current"));
     if (mode === "history" && historical.length) setRange(historical[0].index, historical.at(-1)!.index);
@@ -170,10 +171,10 @@ export function LargeChart({
     <div className="interactive-chart-stage">
       <svg viewBox={`0 0 ${width} ${height}`} role="img" aria-label={`${title}. ${insight}. Showing ${rangeLabel}.`} onMouseLeave={() => onHoverPeriod?.(null)}>
         <title>{title}</title><desc>{insight}. Use range controls, series toggles and settlement-period inspection.</desc>
-        {futureX !== null && <><rect x={futureX} y={top} width={Math.max(0, width - right - futureX)} height={innerH} className="forecast-region" /><text x={futureX + 8} y={top + 14} className="region-label">OPTIMISED FUTURE</text>{futureX > left + 150 && <text x={futureX - 8} y={top + 14} textAnchor="end" className="region-label">HISTORICAL / CURRENT</text>}</>}
+        {futureX !== null && <><rect x={left} y={top} width={Math.max(0, futureX-left)} height={innerH} className="historical-simulated-region" /><rect x={futureX} y={top} width={Math.max(0, width - right - futureX)} height={innerH} className="forecast-region" /><text x={futureX + 8} y={top + 14} className="region-label">CURRENT OPTIMISATION PROJECTION</text>{futureX > left + 150 && <text x={futureX - 8} y={top + 14} textAnchor="end" className="region-label">HISTORICAL SIMULATED ACTIONS</text>}</>}
         {trackStats.map((track, trackIndex) => <g key={track.label} className="chart-track">
           {trackIndex % 2 === 1 && <rect x={left} y={track.top} width={innerW} height={trackHeight} className="chart-track-alt" />}
-          {[0, .5, 1].map((ratio) => { const value = track.max - ratio * track.span; const yy = track.top + ratio * trackHeight; return <g key={ratio}><line x1={left} x2={width-right} y1={yy} y2={yy} className="chart-gridline" /><text x={left-10} y={yy+4} textAnchor="end">{number(value)}</text></g>; })}
+          {[0, .5, 1].map((ratio) => { const value = track.max - ratio * track.span; const yy = track.top + ratio * trackHeight; return <g key={ratio}><line x1={left} x2={width-right} y1={yy} y2={yy} className="chart-gridline" /><text x={left-10} y={yy+4} textAnchor="end">{formatYAxisTick(value, track.unit, track.min, track.max)}</text></g>; })}
           <text x="17" y={track.top + trackHeight / 2} transform={`rotate(-90 17 ${track.top + trackHeight / 2})`} textAnchor="middle" className="axis-title">{track.unit}</text>
           <text x={left + 7} y={track.top + 16} className="track-title">{track.label}</text>
           {track.min < 0 && track.max > 0 && <line x1={left} x2={width-right} y1={y(track.keys[0], 0)} y2={y(track.keys[0], 0)} className="chart-zero" />}
@@ -198,7 +199,7 @@ export function LargeChart({
         {startBoundaryX !== null && <BoundaryMark x={startBoundaryX} top={top} bottom={top+innerH} label="PREVIOUS 15:00 AUCTION" align="start" />}
         {endBoundaryX !== null && <BoundaryMark x={endBoundaryX} top={top} bottom={top+innerH} label="NEXT 15:00 AUCTION" align="end" />}
         {nowX !== null && <g className="now-marker"><line x1={nowX} x2={nowX} y1={top} y2={top + innerH} /><rect x={Math.max(left, Math.min(width-right-48, nowX - 24))} y={top - 24} width="48" height="18" rx="3" /><text x={Math.max(left+24, Math.min(width-right-24, nowX))} y={top - 11} textAnchor="middle">NOW</text></g>}
-        {activeX !== null && <g className={`sp-crosshair ${selectedPeriod === activePeriod ? "pinned" : ""}`}><rect x={activeX - Math.max(5, innerW / Math.max(1, visiblePeriods.length) / 2)} y={top} width={Math.max(10, innerW / Math.max(1, visiblePeriods.length))} height={innerH} /><line x1={activeX} x2={activeX} y1={top} y2={top+innerH} /><text x={Math.min(width-right-5, activeX+7)} y={top+innerH-8}>{activeMeta?.label} · {activeMeta?.phase.replace("optimised_future", "OPTIMISED FUTURE").toUpperCase()}</text></g>}
+        {activeX !== null && <g className={`sp-crosshair ${selectedPeriod === activePeriod ? "pinned" : ""}`}><rect x={activeX - Math.max(5, innerW / Math.max(1, visiblePeriods.length) / 2)} y={top} width={Math.max(10, innerW / Math.max(1, visiblePeriods.length))} height={innerH} /><line x1={activeX} x2={activeX} y1={top} y2={top+innerH} /><text x={Math.min(width-right-5, activeX+7)} y={top+innerH-8}>{activeMeta?.label} · {activeMeta?.phase.replaceAll("_", " ").toUpperCase()}</text></g>}
         {visiblePeriods.map((period, index) => { const cellWidth = innerW / Math.max(1, visiblePeriods.length); return <rect key={period.id} x={xForId(period.id)-cellWidth/2} y={top} width={cellWidth} height={innerH} className="chart-hit-area" onMouseEnter={() => onHoverPeriod?.(period.id)} onClick={() => onSelectPeriod?.(period.id)}><title>{period.label} · {period.deliveryLabel} · {period.phase}</title></rect>; })}
         {visiblePeriods.filter((_, index) => index % Math.max(1, Math.ceil(visiblePeriods.length / 8)) === 0 || index === visiblePeriods.length-1).map((period) => <text key={period.id} x={xForId(period.id)} y={height-25} textAnchor="middle">{period.label}</text>)}
         <text x={left + innerW / 2} y={height - 4} textAnchor="middle" className="axis-title">GB settlement period · UK delivery time</text>

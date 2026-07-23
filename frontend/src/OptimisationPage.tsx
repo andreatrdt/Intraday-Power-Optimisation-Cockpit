@@ -50,7 +50,7 @@ function seriesFrom<T extends { settlement_period: number; delivery_period: stri
 }
 
 function phaseAnnotation(points: PositionPathPoint[]): ChartAnnotation[] {
-  const gates = points.filter((point) => point.phase !== "historical" && !point.market_action_allowed)
+  const gates = points.filter((point) => !point.phase.startsWith("historical_") && !point.market_action_allowed)
     .map((point) => ({ timestamp: point.timestamp, label: `SP${point.settlement_period} Gate Closed`, kind: "warning", value: null }));
   const largestTrades = points.filter((point) => point.phase === "optimised_future" && point.market_action_allowed)
     .sort((left, right) => (right.buy_mwh + right.sell_mwh) - (left.buy_mwh + left.sell_mwh)).slice(0, 3)
@@ -68,7 +68,7 @@ function batterySeries(points: BatteryPathPoint[]): ChartSeries[] {
   return [
     seriesFrom(points, "charge_mw", "Charge", "MW", "bar", (point) => -point.charge_mw, undefined, flat),
     seriesFrom(points, "discharge_mw", "Discharge", "MW", "bar", (point) => point.discharge_mw),
-    seriesFrom(points, "soc_end_mwh", "SoC", "MWh", "line", (point) => point.soc_end_mwh),
+    seriesFrom(points, "soc_end_mwh", "SoC", "MWh", "line", (point) => point.phase === "current" ? point.soc_start_mwh : point.soc_end_mwh),
     seriesFrom(points, "reserve_up_mw", "Reserve up", "MW", "line", (point) => point.reserve_up_mw),
     seriesFrom(points, "reserve_down_mw", "Reserve down", "MW", "line", (point) => point.reserve_down_mw),
     seriesFrom(points, "upward_headroom_mw", "Upward headroom", "MW", "line", (point) => point.upward_headroom_mw),
@@ -100,7 +100,7 @@ function positionSeries(points: PositionPathPoint[]): ChartSeries[] {
 }
 
 function marketSeries(points: MarketExecutionPathPoint[]): ChartSeries[] {
-  const annotations = points.filter((point) => point.phase !== "historical" && !point.market_action_allowed)
+  const annotations = points.filter((point) => !point.phase.startsWith("historical_") && !point.market_action_allowed)
     .map((point) => ({ timestamp: point.timestamp, label: `SP${point.settlement_period} Gate Closed`, kind: "warning", value: null } as ChartAnnotation));
   const wap: ChartSeries = {
     key: "wap", label: "Execution WAP", unit: "GBP/MWh", kind: "line", flat_explanation: null,
@@ -182,8 +182,13 @@ export function OptimisationPage() {
           <button disabled={Boolean(busy)} onClick={() => void act("reset", resetLiveState)}>Reset sample state</button>
         </section>
         <TrustStatusStrip state={live.state} warnings={run.sanity_warnings} />
+        <section className={`historical-run-status panel ${run.reconciliation_warnings.length ? "warning" : ""}`}>
+          <div><strong>{run.historical_history_available ? "Rolling history available" : "Rolling history unavailable"}</strong><span>{run.historical_history_message}</span></div>
+          <div><span>SoC reconciliation: {run.historical_soc_reconciled ? "MATCHED" : "MISMATCH"}</span><span>Q_t reconciliation: {run.historical_q_reconciled ? "MATCHED" : "MISMATCH"}</span></div>
+          {run.reconciliation_warnings.map((warning) => <p key={warning}>{warning}</p>)}
+        </section>
 
-        <div className="section-heading"><div><p className="eyebrow">01 · PRIMARY AUCTION PATHS</p><h2>From the previous 15:00 auction to the next</h2></div><span>History is observed/sample context. Optimisation starts at NOW.</span></div>
+        <div className="section-heading"><div><p className="eyebrow">01 · PRIMARY AUCTION PATHS</p><h2>From the previous 15:00 auction to the next</h2></div><span>Before NOW: historical simulated first actions. After NOW: current optimisation projection.</span></div>
         <section className="auction-path-stack">
           <LargeChart featured title="Optimised battery path" insight={run.battery_path_series.find((point) => point.flat_path_explanation)?.flat_path_explanation ?? run.whole_path_explanation} subtitle="Dispatch, SoC, reserve/headroom and duration are separated into unit-specific tracks." series={charts.battery} periods={interactionPeriods} tracks={batteryTracks} includeZero safeBand={{ min: run.battery_path_series[0]?.soc_min_mwh ?? 0, max: run.battery_path_series[0]?.soc_max_mwh ?? 100, label: "physical SoC range", trackKey: "soc_end_mwh" }} nowMarker={run.now_marker_time} windowStart={run.visual_window_start} windowEnd={run.visual_window_end} focusedScale hoveredPeriod={hoveredPeriod} selectedPeriod={selectedPeriod} onHoverPeriod={setHoveredPeriod} onSelectPeriod={selectFromChart} tooltipContent={(id) => <SpTooltip run={run} periodId={id} kind="battery" />} />
           <LargeChart featured title="Optimised position rebalancing path" insight={run.whole_path_explanation} subtitle="Sell bars are plotted below zero; Q, exposure and residual risk remain in MWh with a zero line and P10–P90 fan." series={charts.position} periods={interactionPeriods} includeZero band={{ lowerKey: "residual_p10_mwh", upperKey: "residual_p90_mwh", label: "Residual P10–P90 range" }} nowMarker={run.now_marker_time} windowStart={run.visual_window_start} windowEnd={run.visual_window_end} focusedScale hoveredPeriod={hoveredPeriod} selectedPeriod={selectedPeriod} onHoverPeriod={setHoveredPeriod} onSelectPeriod={selectFromChart} tooltipContent={(id) => <SpTooltip run={run} periodId={id} kind="position" />} />
@@ -208,7 +213,13 @@ export function OptimisationPage() {
 
 function RunStat({ label, value, mono }: { label: string; value: string; mono?: boolean }) { return <div><span>{label}</span><strong className={mono ? "mono compact-id" : ""}>{value}</strong></div>; }
 function Change({ label, value, unit }: { label: string; value: number; unit: string }) { return <div><span>{label}</span><strong className={value > 0 ? "positive" : value < 0 ? "negative" : ""}>{value > 0 ? "+" : ""}{fmt(value)} {unit}</strong></div>; }
-function PhaseBadge({ phase }: { phase: AuctionPathPhase }) { const text = phase === "optimised_future" ? "OPTIMISED FUTURE" : phase.toUpperCase(); return <span className={`auction-phase-badge ${phase}`}>{text}</span>; }
+const phaseLabels: Record<AuctionPathPhase, string> = {
+  historical_simulated: "HISTORICAL SIMULATED",
+  historical_confirmed: "HISTORICAL CONFIRMED",
+  current: "CURRENT",
+  optimised_future: "OPTIMISED FUTURE",
+};
+function PhaseBadge({ phase }: { phase: AuctionPathPhase }) { return <span className={`auction-phase-badge ${phase}`}>{phaseLabels[phase]}</span>; }
 
 function AuctionTrajectoryTable({ run, open, hoveredPeriod, selectedPeriod, onHoverPeriod, onSelectPeriod }: { run: OptimisationRun; open: (point?: CanonicalDataPoint | null) => void | Promise<void>; hoveredPeriod: string | null; selectedPeriod: string | null; onHoverPeriod: (id: string | null) => void; onSelectPeriod: (id: string) => void }) {
   const battery = new Map(run.battery_path_series.map((point) => [point.delivery_period, point]));
@@ -235,7 +246,14 @@ function SpTooltip({ run, periodId, kind }: { run: OptimisationRun; periodId: st
   const market = run.market_execution_series.find((point) => point.delivery_period === periodId);
   const risk = run.risk_value_series.find((point) => point.delivery_period === periodId);
   if (!meta || !battery || !position || !market || !risk) return null;
+  const historical = meta.phase.startsWith("historical_");
   return <div className="sp-tooltip-content"><header><strong>{meta.display_label}</strong><span>{meta.uk_delivery_time}</span><PhaseBadge phase={meta.phase} /></header>
+    {historical && <TooltipGrid rows={[
+      ["Past run", String(meta.tooltip_payload.historical_run_id ?? "Auction boundary initial state")],
+      ["Decision time", meta.tooltip_payload.decision_time ? formatTimestampWithZone(String(meta.tooltip_payload.decision_time), "UK time") : "No eligible action at boundary"],
+      ["Forecast vintage", String(meta.tooltip_payload.forecast_vintage_id ?? "Initial SAMPLE state")],
+      ["Assumed executed", String(meta.tooltip_payload.assumed_executed_action ?? "Hold")],
+    ]} />}
     {kind === "battery" && <><TooltipGrid rows={[
       ["Charge", `${fmt(battery.charge_mw)} MW · ${fmt(battery.charge_mwh)} MWh`], ["Discharge", `${fmt(battery.discharge_mw)} MW · ${fmt(battery.discharge_mwh)} MWh`],
       ["SoC", `${fmt(battery.soc_start_mwh)} → ${fmt(battery.soc_end_mwh)} MWh`], ["Reserve up / down", `${fmt(battery.reserve_up_mw)} / ${fmt(battery.reserve_down_mw)} MW`],
@@ -275,6 +293,17 @@ function SpDetailDrawer({ run, periodId, onClose, onClear }: { run: Optimisation
     <section><h3>Position decision</h3><SpTooltip run={run} periodId={periodId} kind="position" /></section>
     <section><h3>Market execution</h3><SpTooltip run={run} periodId={periodId} kind="market" /></section>
     <section><h3>Risk and value</h3><SpTooltip run={run} periodId={periodId} kind="risk" /></section>
+    {meta.phase.startsWith("historical_") && <section><h3>Historical rolling-run audit</h3><TooltipGrid rows={[
+      ["Optimisation run", String(meta.tooltip_payload.historical_run_id ?? "Auction boundary initial state")],
+      ["Decision time", meta.tooltip_payload.decision_time ? formatTimestampWithZone(String(meta.tooltip_payload.decision_time), "UK time") : "No eligible action at boundary"],
+      ["Forecast vintage", String(meta.tooltip_payload.forecast_vintage_id ?? "Initial SAMPLE state")],
+      ["Market snapshot", String(meta.tooltip_payload.market_snapshot_id ?? "Initial SAMPLE state")],
+      ["Assumed executed action", String(meta.tooltip_payload.assumed_executed_action ?? "Hold")],
+      ["Resulting Q_t", meta.tooltip_payload.resulting_q_mwh === undefined ? "Initial state" : `${fmt(Number(meta.tooltip_payload.resulting_q_mwh))} MWh`],
+      ["Resulting SoC", meta.tooltip_payload.resulting_soc_mwh === undefined ? "Initial state" : `${fmt(Number(meta.tooltip_payload.resulting_soc_mwh))} MWh`],
+      ["Simulated actual generation", meta.tooltip_payload.simulated_actual_generation_mwh === undefined ? "Unavailable" : `${fmt(Number(meta.tooltip_payload.simulated_actual_generation_mwh))} MWh`],
+      ["Simulated actual price", meta.tooltip_payload.simulated_actual_price_gbp_per_mwh === undefined ? "Unavailable" : `£${fmt(Number(meta.tooltip_payload.simulated_actual_price_gbp_per_mwh), 2)}/MWh`],
+    ]} /></section>}
     <section><h3>Source provenance</h3><div className="provenance-list">{meta.source_provenance.map((source) => <code key={source}>{source}</code>)}</div><p>{String(meta.tooltip_payload.trust_statement)}</p></section>
     <footer><button type="button" className="primary-action" onClick={scrollToRow}>Scroll table to this SP</button><button type="button" onClick={onClear}>Clear selection</button></footer>
   </aside></div>;

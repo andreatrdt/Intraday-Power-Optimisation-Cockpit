@@ -26,9 +26,11 @@ from cockpit.models import (
     OptimisationRun,
     OptimisationPeriodInput,
     OptimisationInteractionPoint,
+    OptimisationStartingState,
     PositionPathPoint,
     MarketExecutionPathPoint,
     RiskValuePathPoint,
+    RollingRunLedgerEntry,
     OptimiserReadiness,
     OptimiserStatus,
     Quality,
@@ -63,6 +65,11 @@ REGIME_BIAS = {
 class SimulatedEnvironment:
     """Deterministic, evolving environment that is always explicitly SAMPLE."""
 
+    _BOOTSTRAP_CACHE: dict[
+        tuple[str, str],
+        tuple[list[RollingRunLedgerEntry], list[OptimisationRun], float, float],
+    ] = {}
+
     def __init__(self, horizon: int = 8, clock: Callable[[], datetime] | None = None) -> None:
         self.horizon = horizon
         self.clock = clock or (lambda: datetime.now(tz=UTC))
@@ -87,6 +94,8 @@ class SimulatedEnvironment:
         self.history: list[LiveHistoryPoint] = []
         self.forecast_vintage_history: list[ForecastVintageHistoryPoint] = []
         self.optimisation_history: list[HistoricalOptimisationPoint] = []
+        self.rolling_run_ledger: list[RollingRunLedgerEntry] = []
+        self.bootstrapped_runs: list[OptimisationRun] = []
         self.applied_delivery_periods: set[str] = set()
         self._previous_production_mw: float | None = None
         self._previous_demand_mw: float | None = None
@@ -124,11 +133,262 @@ class SimulatedEnvironment:
         self.history = []
         self.forecast_vintage_history = []
         self.optimisation_history = []
+        self.rolling_run_ledger = []
+        self.bootstrapped_runs = []
         self.applied_delivery_periods = set()
         self._previous_production_mw = None
         self._previous_demand_mw = None
         self._previous_inputs = []
+        self.bootstrap_auction_history()
         return self.refresh(reason="Sample rolling environment reset")
+
+    def bootstrap_auction_history(self) -> None:
+        """Replay SAMPLE decisions without using any observation after each decision."""
+        from cockpit.full_action_optimiser import optimise_full_action
+
+        as_of = self.current_time
+        previous_auction, _ = daily_auction_boundaries(as_of)
+        current_period = settlement_period_for_instant(as_of)
+        cache_key = (previous_auction.isoformat(), current_period.start_utc.isoformat())
+        cached = self._BOOTSTRAP_CACHE.get(cache_key)
+        if cached is not None:
+            ledger, runs, soc, q = cached
+            self.rolling_run_ledger = [item.model_copy(deep=True) for item in ledger]
+            self.bootstrapped_runs = [item.model_copy(deep=True) for item in runs]
+            self.current_soc_mwh = soc
+            self.previous_projected_soc_mwh = soc
+            self.last_applied_q_mwh = q
+            for period in self._horizon_periods(as_of):
+                self.q_by_period[period.label] = q
+            return
+
+        completed = [
+            period
+            for period in auction_window_periods(as_of)
+            if period.start_utc >= previous_auction and period.end_utc <= as_of
+        ]
+        carried_soc = self.initial_soc_mwh
+        carried_q = self._base_q(0)
+        ledger: list[RollingRunLedgerEntry] = []
+        runs: list[OptimisationRun] = []
+
+        cadence_periods = 4
+        cadence_minutes = int(cadence_periods * PERIOD.total_seconds() / 60)
+        for index, target in enumerate(completed):
+            fresh_decision = not runs or index % cadence_periods == 0
+            if fresh_decision:
+                decision_time = (
+                    previous_auction
+                    if target.start_utc == previous_auction
+                    else target.start_utc - timedelta(minutes=10)
+                )
+                snapshot_id = f"sample-history-snapshot-{decision_time.strftime('%Y%m%dT%H%M%S')}"
+                vintage_id = f"sample-history-forecast-{decision_time.strftime('%Y%m%dT%H%M%S')}"
+                market_id = f"sample-history-market-{decision_time.strftime('%Y%m%dT%H%M%S')}"
+                scratch = SimulatedEnvironment(horizon=self.horizon, clock=lambda value=decision_time: value)
+                scratch.horizon_mode = HorizonMode.NEXT_AUCTION
+                scratch.regime = self.regime
+                scratch.step = index
+                scratch.q_by_period = {
+                    period.label: carried_q for period in scratch._horizon_periods(decision_time)
+                }
+                periods = [
+                    period
+                    for period in scratch._build_periods(decision_time, snapshot_id)
+                    if period.delivery_start >= target.start_utc
+                ]
+                if not periods:
+                    continue
+                starting = OptimisationStartingState(
+                    current_time=decision_time,
+                    current_settlement_period=settlement_period_for_instant(decision_time).settlement_period,
+                    starting_soc_mwh=carried_soc,
+                    starting_q_mwh=carried_q,
+                    forecast_vintage_id=vintage_id,
+                    market_snapshot_id=market_id,
+                    regime=self.regime,
+                    source_mode=SourceMode.SAMPLE,
+                    horizon_mode=HorizonMode.NEXT_AUCTION,
+                    effective_horizon_mode=HorizonMode.NEXT_AUCTION,
+                    horizon_start=periods[0].delivery_start,
+                    horizon_end=periods[-1].delivery_end,
+                )
+                historical_run = optimise_full_action(
+                    [period.model_copy(deep=True) for period in periods],
+                    starting,
+                    snapshot_id,
+                    previous_run=runs[-1] if runs else None,
+                )
+                historical_run.run_id = (
+                    f"hist-{target.start_utc.strftime('%Y%m%dT%H%M')}-"
+                    f"{uuid5(NAMESPACE_URL, snapshot_id).hex[:8]}"
+                )
+                runs.append(historical_run.model_copy(deep=True))
+                action = historical_run.projected_trajectory[0]
+            else:
+                historical_run = runs[-1]
+                decision_time = historical_run.as_of
+                snapshot_id = historical_run.snapshot_id
+                vintage_id = historical_run.starting_state.forecast_vintage_id
+                market_id = historical_run.starting_state.market_snapshot_id
+                action = next(
+                    item
+                    for item in historical_run.projected_trajectory
+                    if item.delivery_period == target.label
+                )
+
+            applied_buy = action.buy_mwh if fresh_decision else 0.0
+            applied_sell = action.sell_mwh if fresh_decision else 0.0
+            applied_charge = action.charge_mw if fresh_decision else 0.0
+            applied_discharge = action.discharge_mw if fresh_decision else 0.0
+            q_after = round(carried_q + applied_sell - applied_buy, 4)
+            soc_after = (
+                action.projected_soc_mwh
+                if fresh_decision
+                else carried_soc
+            )
+            actual_generation = max(
+                0.0,
+                action.generation_p50_mwh + 2.8 * math.sin(index * 1.17 + 0.4),
+            )
+            actual_reference = (
+                action.reference_price_gbp_per_mwh + 1.7 * math.cos(index * 0.91 + 0.2)
+            )
+            lineage_ids = [
+                point.value_id
+                for point in historical_run.lineage_values
+                if (
+                    point.lineage.retrieved_at <= decision_time
+                    and point.delivery_period == target.label
+                )
+            ]
+            maximum_optionality = 0.55 * 100.0 * target.duration_hours
+            exposure_p10 = action.generation_p10_mwh - carried_q
+            exposure_p50 = action.generation_p50_mwh - carried_q
+            exposure_p90 = action.generation_p90_mwh - carried_q
+            residual_p10 = action.residual_p10_mwh if fresh_decision else exposure_p10
+            residual_p50 = action.residual_p50_mwh if fresh_decision else exposure_p50
+            residual_p90 = action.residual_p90_mwh if fresh_decision else exposure_p90
+            imbalance_cost = (
+                action.imbalance_expected_cost_gbp
+                if fresh_decision
+                else 125.0 * (
+                    0.25 * abs(residual_p10)
+                    + 0.50 * abs(residual_p50)
+                    + 0.25 * abs(residual_p90)
+                )
+            )
+            tail_cost = (
+                action.tail_risk_penalty_gbp
+                if fresh_decision
+                else 125.0 * 0.35 * max(abs(residual_p10), abs(residual_p90))
+            )
+            entry = RollingRunLedgerEntry(
+                decision_time=decision_time,
+                settlement_period=target.settlement_period,
+                delivery_period=target.label,
+                delivery_start=target.start_utc,
+                delivery_end=target.end_utc,
+                optimisation_run_id=historical_run.run_id,
+                forecast_vintage_id=vintage_id,
+                market_snapshot_id=market_id,
+                q_before_mwh=round(carried_q, 4),
+                buy_mwh=applied_buy,
+                sell_mwh=applied_sell,
+                q_after_mwh=q_after,
+                soc_start_mwh=round(carried_soc, 4),
+                charge_mw=applied_charge,
+                discharge_mw=applied_discharge,
+                soc_end_mwh=soc_after,
+                reserve_up_mw=action.reserve_up_mw,
+                reserve_down_mw=action.reserve_down_mw,
+                upward_headroom_mw=action.upward_headroom_mw if fresh_decision else 20.0,
+                downward_headroom_mw=action.downward_headroom_mw if fresh_decision else 20.0,
+                upward_duration_coverage_h=(
+                    action.upward_duration_coverage_h
+                    if fresh_decision
+                    else round((carried_soc - 10.0) * 0.92 / max(action.reserve_up_mw, 1e-9), 4)
+                ),
+                downward_duration_coverage_h=(
+                    action.downward_duration_coverage_h
+                    if fresh_decision
+                    else round((100.0 - carried_soc) / (0.94 * max(action.reserve_down_mw, 1e-9)), 4)
+                ),
+                exposure_before_p10_mwh=exposure_p10,
+                exposure_before_p50_mwh=exposure_p50,
+                exposure_before_p90_mwh=exposure_p90,
+                residual_after_p10_mwh=residual_p10,
+                residual_after_p50_mwh=residual_p50,
+                residual_after_p90_mwh=residual_p90,
+                actual_generation_mwh=round(actual_generation, 4),
+                actual_reference_price_gbp_per_mwh=round(actual_reference, 4),
+                bid_price_gbp_per_mwh=action.best_bid_gbp_per_mwh,
+                ask_price_gbp_per_mwh=action.best_ask_gbp_per_mwh,
+                bid_depth_mwh=action.bid_depth_mwh,
+                ask_depth_mwh=action.ask_depth_mwh,
+                market_wap_gbp_per_mwh=action.market_wap_gbp_per_mwh if fresh_decision else None,
+                consumed_bid_depth_mwh=applied_sell,
+                consumed_ask_depth_mwh=applied_buy,
+                imbalance_cost_gbp=round(imbalance_cost, 2),
+                tail_risk_penalty_gbp=round(tail_cost, 2),
+                degradation_cost_gbp=action.degradation_cost_gbp if fresh_decision else 0.0,
+                terminal_soc_value_gbp=action.terminal_soc_contribution_gbp if fresh_decision else 0.0,
+                reserve_bm_service_value_gbp=action.reserve_bm_service_value_gbp,
+                optionality_lost_gbp=round(
+                    max(0.0, maximum_optionality - action.optionality_preservation_value_gbp),
+                    2,
+                ),
+                total_period_contribution_gbp=(
+                    action.total_period_contribution_gbp
+                    if fresh_decision
+                    else round(-imbalance_cost - tail_cost, 2)
+                ),
+                binding_constraints=action.binding_constraints if fresh_decision else ["CADENCE_HOLD"],
+                explanation=(
+                    (
+                        f"At {decision_time.astimezone(LONDON).strftime('%H:%M')} UK time, "
+                        f"run {historical_run.run_id} selected its first actionable step: "
+                        f"buy {applied_buy:.1f} MWh, sell {applied_sell:.1f} MWh, "
+                        f"charge {applied_charge:.1f} MW and discharge {applied_discharge:.1f} MW. "
+                        "SAMPLE simulation assumes this action was followed."
+                    )
+                    if fresh_decision
+                    else (
+                        f"No fresh optimisation was scheduled for this SP at the configured "
+                        f"{cadence_minutes}-minute historical cadence. Q_t and SoC carry forward "
+                        f"from run {historical_run.run_id}; no later information was used."
+                    )
+                ),
+                phase="HISTORICAL_SIMULATED",
+                source_mode=SourceMode.SAMPLE,
+                lineage_value_ids=lineage_ids,
+                fresh_decision_step=fresh_decision,
+                decision_cadence_minutes=cadence_minutes,
+            )
+            if fresh_decision:
+                runs[-1].rolling_run_ledger = [entry.model_copy(deep=True)]
+                runs[-1].historical_history_available = True
+                runs[-1].historical_history_message = (
+                    "SAMPLE historical run; only its first actionable step was applied."
+                )
+                runs[-1].immutable = True
+            ledger.append(entry)
+            carried_soc = soc_after
+            carried_q = q_after
+
+        self.rolling_run_ledger = ledger
+        self.bootstrapped_runs = runs
+        self.current_soc_mwh = carried_soc
+        self.previous_projected_soc_mwh = carried_soc
+        self.last_applied_q_mwh = carried_q
+        for period in self._horizon_periods(as_of):
+            self.q_by_period[period.label] = carried_q
+        self._BOOTSTRAP_CACHE[cache_key] = (
+            [item.model_copy(deep=True) for item in ledger],
+            [item.model_copy(deep=True) for item in runs],
+            carried_soc,
+            carried_q,
+        )
 
     def set_horizon_mode(self, mode: HorizonMode) -> tuple[LiveStateSnapshot, list[OptimisationPeriodInput], CockpitSnapshot]:
         self.horizon_mode = mode
@@ -271,7 +531,7 @@ class SimulatedEnvironment:
             current_q_mwh=round(current_q, 3),
             current_forecast_generation_mwh=first.generation_p50_mwh,
             exposure_before_action_mwh=round(exposure, 3),
-            current_soc_mwh=round(self.current_soc_mwh, 3),
+            current_soc_mwh=self.current_soc_mwh,
             previous_projected_soc_mwh=self.previous_projected_soc_mwh,
             reserve_up_held_mw=first.upward_commitment_mw,
             reserve_down_held_mw=first.downward_commitment_mw,
@@ -650,6 +910,14 @@ class SimulatedEnvironment:
         charge_max = discharge_max = 50.0
         e_min, e_max = 10.0, 100.0
         terminal_target, terminal_minimum = 55.0, 35.0
+        ledger_by_period = {
+            item.delivery_period: item
+            for item in self.rolling_run_ledger
+            if (
+                run.starting_state.source_mode == SourceMode.SAMPLE
+                or item.phase == "HISTORICAL_CONFIRMED"
+            )
+        }
 
         def nearest(instant: datetime) -> LiveHistoryPoint:
             return min(history, key=lambda item: abs((item.observed_at - instant).total_seconds()))
@@ -722,11 +990,134 @@ class SimulatedEnvironment:
                 ))
                 continue
 
+            ledger = ledger_by_period.get(period.label)
+            if ledger is not None:
+                phase = (
+                    "historical_confirmed"
+                    if ledger.phase == "HISTORICAL_CONFIRMED"
+                    else "historical_simulated"
+                )
+                battery.append(BatteryPathPoint(
+                    settlement_period=period.settlement_period,
+                    delivery_period=period.label,
+                    timestamp=period.start_utc,
+                    delivery_end=period.end_utc,
+                    phase=phase,
+                    charge_mw=ledger.charge_mw,
+                    charge_mwh=round(ledger.charge_mw * period.duration_hours, 4),
+                    discharge_mw=ledger.discharge_mw,
+                    discharge_mwh=round(ledger.discharge_mw * period.duration_hours, 4),
+                    soc_start_mwh=ledger.soc_start_mwh,
+                    soc_end_mwh=ledger.soc_end_mwh,
+                    reserve_up_mw=ledger.reserve_up_mw,
+                    reserve_down_mw=ledger.reserve_down_mw,
+                    upward_headroom_mw=ledger.upward_headroom_mw,
+                    downward_headroom_mw=ledger.downward_headroom_mw,
+                    upward_duration_coverage_h=ledger.upward_duration_coverage_h,
+                    downward_duration_coverage_h=ledger.downward_duration_coverage_h,
+                    soc_min_mwh=e_min,
+                    soc_max_mwh=e_max,
+                    terminal_soc_target_mwh=terminal_target,
+                    terminal_soc_minimum_mwh=terminal_minimum,
+                    binding_constraints=ledger.binding_constraints,
+                ))
+                position.append(PositionPathPoint(
+                    settlement_period=period.settlement_period,
+                    delivery_period=period.label,
+                    timestamp=period.start_utc,
+                    delivery_end=period.end_utc,
+                    phase=phase,
+                    generation_p10_mwh=ledger.exposure_before_p10_mwh + ledger.q_before_mwh,
+                    generation_p50_mwh=ledger.exposure_before_p50_mwh + ledger.q_before_mwh,
+                    generation_p90_mwh=ledger.exposure_before_p90_mwh + ledger.q_before_mwh,
+                    demand_mw=nearest(period.start_utc).demand_mw,
+                    residual_demand_mw=nearest(period.start_utc).residual_demand_mw,
+                    q_before_mwh=ledger.q_before_mwh,
+                    buy_mwh=ledger.buy_mwh,
+                    sell_mwh=ledger.sell_mwh,
+                    q_after_mwh=ledger.q_after_mwh,
+                    exposure_before_p10_mwh=ledger.exposure_before_p10_mwh,
+                    exposure_before_p50_mwh=ledger.exposure_before_p50_mwh,
+                    exposure_before_p90_mwh=ledger.exposure_before_p90_mwh,
+                    residual_p10_mwh=ledger.residual_after_p10_mwh,
+                    residual_p50_mwh=ledger.residual_after_p50_mwh,
+                    residual_p90_mwh=ledger.residual_after_p90_mwh,
+                    market_action_allowed=True,
+                    gate_closure_at=period.start_utc - timedelta(minutes=5),
+                    gate_closure_status="HISTORICAL_EXECUTED_SAMPLE",
+                    binding_constraints=ledger.binding_constraints,
+                    one_line_reason=ledger.explanation,
+                ))
+                market.append(MarketExecutionPathPoint(
+                    settlement_period=period.settlement_period,
+                    delivery_period=period.label,
+                    timestamp=period.start_utc,
+                    phase=phase,
+                    bid_price_gbp_per_mwh=ledger.bid_price_gbp_per_mwh,
+                    ask_price_gbp_per_mwh=ledger.ask_price_gbp_per_mwh,
+                    wap_used_gbp_per_mwh=ledger.market_wap_gbp_per_mwh,
+                    spread_gbp_per_mwh=round(
+                        ledger.ask_price_gbp_per_mwh - ledger.bid_price_gbp_per_mwh,
+                        4,
+                    ),
+                    bid_depth_mwh=ledger.bid_depth_mwh,
+                    ask_depth_mwh=ledger.ask_depth_mwh,
+                    consumed_bid_depth_mwh=ledger.consumed_bid_depth_mwh,
+                    consumed_ask_depth_mwh=ledger.consumed_ask_depth_mwh,
+                    unfilled_volume_mwh=0.0,
+                    executable_data_mode=ledger.source_mode,
+                    reference_price_gbp_per_mwh=(
+                        ledger.actual_reference_price_gbp_per_mwh
+                        or (ledger.bid_price_gbp_per_mwh + ledger.ask_price_gbp_per_mwh) / 2
+                    ),
+                    reference_price_mode=ledger.source_mode,
+                    gate_closure_at=period.start_utc - timedelta(minutes=5),
+                    market_action_allowed=True,
+                ))
+                risk.append(RiskValuePathPoint(
+                    settlement_period=period.settlement_period,
+                    delivery_period=period.label,
+                    timestamp=period.start_utc,
+                    phase=phase,
+                    market_value_or_cost_gbp=0.0,
+                    imbalance_cost_gbp=ledger.imbalance_cost_gbp,
+                    tail_risk_penalty_gbp=ledger.tail_risk_penalty_gbp,
+                    degradation_cost_gbp=ledger.degradation_cost_gbp,
+                    terminal_soc_value_gbp=ledger.terminal_soc_value_gbp,
+                    reserve_bm_service_value_gbp=ledger.reserve_bm_service_value_gbp,
+                    optionality_lost_gbp=ledger.optionality_lost_gbp,
+                    total_period_contribution_gbp=ledger.total_period_contribution_gbp,
+                    worst_case_residual_mwh=round(max(
+                        abs(ledger.residual_after_p10_mwh),
+                        abs(ledger.residual_after_p90_mwh),
+                    ), 4),
+                    binding_constraint_count=len(ledger.binding_constraints),
+                ))
+                continue
+
+            if (
+                run.starting_state.source_mode != SourceMode.SAMPLE
+                and period.end_utc <= run.as_of
+            ):
+                continue
+
             sample = nearest(min(period.end_utc, run.as_of))
             previous_sample = nearest(period.start_utc - PERIOD)
-            phase = "current" if period.start_utc <= run.as_of < period.end_utc else "historical"
-            soc_start = previous_sample.soc_mwh
-            soc_end = run.starting_state.starting_soc_mwh if phase == "current" else sample.soc_mwh
+            phase = (
+                "current"
+                if period.start_utc <= run.as_of < period.end_utc
+                else "historical_simulated"
+            )
+            soc_start = (
+                run.starting_state.starting_soc_mwh
+                if phase == "current"
+                else self.initial_soc_mwh
+            )
+            soc_end = (
+                run.starting_state.starting_soc_mwh
+                if phase == "current"
+                else self.initial_soc_mwh
+            )
             soc_delta = soc_end - soc_start
             charge = min(charge_max, max(0.0, soc_delta / (eta_c * period.duration_hours)))
             discharge = min(discharge_max, max(0.0, -soc_delta * eta_d / period.duration_hours))
@@ -738,11 +1129,16 @@ class SimulatedEnvironment:
             down_duration = (e_max - soc_start) / (eta_c * max(reserve_down, 1e-9))
             p50 = sample.forecast_p50_mw * period.duration_hours
             p10, p90 = max(0.0, p50 - 8.0), p50 + 8.0
-            q_before = sample.q_mwh
+            q_before = (
+                run.starting_state.starting_q_mwh
+                if phase == "current"
+                else self._base_q(0)
+            )
             residual_p10, residual_p50, residual_p90 = p10 - q_before, p50 - q_before, p90 - q_before
             historical_reason = (
                 "Current SAMPLE state at NOW; market actions are not back-filled."
-                if phase == "current" else "Historical SAMPLE state; no optimiser action is attributed retrospectively."
+                if phase == "current"
+                else "Auction bootstrap initial state; no action was eligible at the 15:00 boundary."
             )
             battery.append(BatteryPathPoint(
                 settlement_period=period.settlement_period, delivery_period=period.label,
@@ -849,6 +1245,24 @@ class SimulatedEnvironment:
                     "position_reason": point.one_line_reason,
                     "gate_closure_status": point.gate_closure_status,
                     "trust_statement": "Explicit SAMPLE state; calculable but not trustworthy for live trading.",
+                    **({
+                        "historical_run_id": ledger_by_period[point.delivery_period].optimisation_run_id,
+                        "decision_time": ledger_by_period[point.delivery_period].decision_time.isoformat(),
+                        "forecast_vintage_id": ledger_by_period[point.delivery_period].forecast_vintage_id,
+                        "market_snapshot_id": ledger_by_period[point.delivery_period].market_snapshot_id,
+                        "assumed_executed_action": (
+                            f"Buy {ledger_by_period[point.delivery_period].buy_mwh:.1f} MWh; "
+                            f"sell {ledger_by_period[point.delivery_period].sell_mwh:.1f} MWh; "
+                            f"charge {ledger_by_period[point.delivery_period].charge_mw:.1f} MW; "
+                            f"discharge {ledger_by_period[point.delivery_period].discharge_mw:.1f} MW"
+                        ),
+                        "resulting_q_mwh": ledger_by_period[point.delivery_period].q_after_mwh,
+                        "resulting_soc_mwh": ledger_by_period[point.delivery_period].soc_end_mwh,
+                        "simulated_actual_generation_mwh": ledger_by_period[point.delivery_period].actual_generation_mwh,
+                        "simulated_actual_price_gbp_per_mwh": ledger_by_period[point.delivery_period].actual_reference_price_gbp_per_mwh,
+                        "fresh_decision_step": ledger_by_period[point.delivery_period].fresh_decision_step,
+                        "decision_cadence_minutes": ledger_by_period[point.delivery_period].decision_cadence_minutes,
+                    } if point.delivery_period in ledger_by_period else {}),
                 },
                 annotation_payload=[
                     *point.binding_constraints,
@@ -857,12 +1271,51 @@ class SimulatedEnvironment:
                 source_mode=SourceMode.SAMPLE,
                 source_provenance=[
                     "rolling_sample_environment",
-                    *(["full_action_optimiser"] if point.phase in {"current", "optimised_future"} else []),
+                    *(["full_action_optimiser"] if point.phase != "historical_confirmed" else []),
+                    *(
+                        ledger_by_period[point.delivery_period].lineage_value_ids[:8]
+                        if point.delivery_period in ledger_by_period
+                        else []
+                    ),
                 ],
                 explanation_text=point.one_line_reason,
             )
             for index, point in enumerate(position)
         ]
+        run.rolling_run_ledger = [
+            item.model_copy(deep=True)
+            for item in self.rolling_run_ledger
+            if item.delivery_period in {point.delivery_period for point in position}
+        ]
+        run.historical_history_available = bool(run.rolling_run_ledger)
+        run.historical_history_message = (
+            "SAMPLE rolling history was generated from immutable past optimisation runs "
+            "at a configured 120-minute cadence; only the first actionable step of each "
+            "fresh run is assumed applied and intervening SPs explicitly carry state."
+            if run.starting_state.source_mode == SourceMode.SAMPLE and run.rolling_run_ledger
+            else (
+                "No prior optimisation run history available before this session."
+                if not run.rolling_run_ledger
+                else "Confirmed or persisted historical optimisation history."
+            )
+        )
+        reconciliation_warnings: list[str] = []
+        if run.rolling_run_ledger:
+            final_entry = run.rolling_run_ledger[-1]
+            run.historical_soc_reconciled = (
+                abs(final_entry.soc_end_mwh - run.starting_state.starting_soc_mwh) <= 1e-3
+            )
+            run.historical_q_reconciled = (
+                abs(final_entry.q_after_mwh - run.starting_state.starting_q_mwh) <= 1e-3
+            )
+            if not run.historical_soc_reconciled:
+                reconciliation_warnings.append("Historical SoC reconciliation mismatch.")
+            if not run.historical_q_reconciled:
+                reconciliation_warnings.append("Historical Q_t reconciliation mismatch.")
+        run.reconciliation_warnings = reconciliation_warnings
+        run.warnings.extend(
+            warning for warning in reconciliation_warnings if warning not in run.warnings
+        )
         run.whole_path_explanation = self._whole_path_explanation(run)
         return run
 
@@ -1002,7 +1455,11 @@ class SimulatedEnvironment:
         """Choose actionable/current periods; daily 15:00 UK is the primary horizon."""
         if self.horizon_mode == HorizonMode.NEXT_AUCTION:
             _, next_auction = daily_auction_boundaries(as_of)
-            return [period for period in auction_window_periods(as_of) if period.end_utc > as_of and period.start_utc < next_auction]
+            return [
+                period
+                for period in auction_window_periods(as_of)
+                if period.end_utc > as_of and period.start_utc < next_auction
+            ]
         first_candidates = upcoming_periods(as_of + PERIOD, 52)
         if self.horizon_mode == HorizonMode.END_OF_DAY:
             delivery_day = first_candidates[0].settlement_date

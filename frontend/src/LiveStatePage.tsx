@@ -1,9 +1,11 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Badge, LineageDrawer } from "./App";
-import { FlatSeriesSummary, LargeChart } from "./CockpitChart";
+import { FlatSeriesSummary } from "./CockpitChart";
+import { TimeSeriesChart } from "./TimeSeriesChart";
 import { ConnectionStatus } from "./ConnectionStatus";
 import { HistoryWindowSelector } from "./HistoryWindowSelector";
 import { loadLineage, loadLiveState, refreshLiveState } from "./api";
+import { FREQUENCY_BANDS, FREQUENCY_DEVIATION } from "./chartDomain";
 import { filterChartSeries, historyWindowLabels, type CustomWindow, type HistoryWindow } from "./historyWindow";
 import { ProductNav } from "./ProductNav";
 import { formatLocalTime, formatTimestampWithZone, formatUkMarketTime } from "./time";
@@ -31,16 +33,18 @@ export function LiveStatePage() {
   useEffect(() => { const timer = window.setInterval(() => setBrowserNow(new Date()), 1000); return () => window.clearInterval(timer); }, []);
   const byId = useMemo(() => new Map(live?.lineage_values.map((point) => [point.value_id, point]) ?? []), [live]);
   const open = async (point: CanonicalDataPoint | null | undefined) => { if (!point) return; try { setLineage(await loadLineage(point.value_id)); } catch (cause) { setError(cause instanceof Error ? cause.message : "Unable to load lineage"); } };
-  const chart = (key: string) => live ? filterChartSeries(live.chart_series[key] ?? [], historyWindow, live.state.current_time, customWindow) : [];
+  const rawSeries = (key: string) => live?.chart_series[key] ?? [];
   const largestRevision = live?.forecast_vintage_series.reduce((best, point) => Math.abs(point.delta_mwh) > Math.abs(best.delta_mwh) ? point : best, live.forecast_vintage_series[0]);
-  const reserveSeries = chart("battery").filter((item) => item.unit === "MW");
-  const reserveIsFlat = reserveSeries.length > 0 && reserveSeries.every((item) => Boolean(item.flat_explanation));
+  const reserveRaw = rawSeries("battery").filter((item) => item.unit === "MW");
+  const reserveWindowed = live ? filterChartSeries(reserveRaw, historyWindow, live.state.current_time, customWindow) : [];
+  const reserveIsFlat = reserveRaw.length > 0 && reserveRaw.every((item) => Boolean(item.flat_explanation));
+  const chartFrame = live ? { window: historyWindow, now: live.state.current_time, custom: customWindow, sourceMode: live.state.state_source_mode } : null;
 
   return <div className="app-shell live-page graph-led-page">
     <header className="topbar"><div className="brand-lockup"><div className="brand-mark live-pulse">IP</div><div><p className="eyebrow">ROLLING INTRADAY COCKPIT</p><h1>Live Market State</h1></div></div><ProductNav active="live" /><ConnectionStatus error={Boolean(error)} lastPoll={lastPoll} /></header>
     <main>
       {error && <div className="error-banner"><strong>Backend error</strong><span>{error}</span><button onClick={() => void load()}>Retry</button></div>}
-      {live ? <>
+      {live && chartFrame ? <>
         <section className="live-clock-strip panel">
           <div><span>Browser clock</span><strong>{formatLocalTime(browserNow)}</strong><small>local time</small></div>
           <div><span>UK market clock</span><strong>{formatUkMarketTime(live.state.current_time)}</strong><small>backend time · UK time</small></div>
@@ -61,26 +65,26 @@ export function LiveStatePage() {
 
         <div className="section-heading"><div><p className="eyebrow">01 · CURRENT STATE HISTORY</p><h2>Production, demand and forecast</h2></div><span>{n(live.history.length, 0)} observations up to backend time</span></div>
         <section className="large-chart-stack">
-          <LargeChart title="Renewable production history" insight={live.chart_insights.production} subtitle={`Production ${n(live.production_demand.production_delta_mw)} MW since the previous refresh. Actual and forecast are SAMPLE.`} series={chart("production")} />
-          <LargeChart title="Demand and residual demand history" insight={live.chart_insights.demand} subtitle={`Demand ${live.production_demand.demand_delta_mw >= 0 ? "+" : ""}${n(live.production_demand.demand_delta_mw)} MW since the previous refresh.`} series={chart("demand")} />
-          <LargeChart title="Forecast vintage history" insight={live.chart_insights.forecast_history} subtitle="Rolling P50, previous vintage, simulated actual and forecast error across the selected history." series={chart("forecast_history")} includeZero />
-          <LargeChart title="Future forecast vintages and uncertainty" insight={live.chart_insights.forecast_vintage} subtitle={largestRevision ? `Largest revision SP${largestRevision.settlement_period} · confidence ${n(largestRevision.confidence_score * 100, 0)}% · ${largestRevision.driver.replaceAll("_", " ")}.` : "Latest and previous forecast vintages."} series={chart("forecast_vintage")} includeZero forecastBoundary={live.state.optimisation_horizon_start} />
+          <TimeSeriesChart {...chartFrame} title="Renewable production history" insight={live.chart_insights.production} subtitle="Actual production, wind, solar and P50 forecast — all SAMPLE, in MW." series={rawSeries("production")} unavailableInsight="Renewable production history is unavailable for the selected window." />
+          <TimeSeriesChart {...chartFrame} title="Demand and residual demand history" insight={live.chart_insights.demand} subtitle="Demand and residual demand across the selected history, in MW." series={rawSeries("demand")} unavailableInsight="Demand history is unavailable for the selected window." />
+          <TimeSeriesChart {...chartFrame} title="Forecast vintage history" insight={live.chart_insights.forecast_history} subtitle="Rolling P50, previous vintage, simulated actual and forecast error across the selected history." series={rawSeries("forecast_history")} includeZero unavailableInsight="Forecast vintage history is unavailable for the selected window." />
+          <TimeSeriesChart {...chartFrame} title="Future forecast vintages and uncertainty" insight={live.chart_insights.forecast_vintage} subtitle={largestRevision ? `Largest revision SP${largestRevision.settlement_period} · confidence ${n(largestRevision.confidence_score * 100, 0)}% · ${largestRevision.driver.replaceAll("_", " ")}.` : "Latest and previous forecast vintages."} series={rawSeries("forecast_vintage")} includeZero forecastBoundary={live.state.optimisation_horizon_start} unavailableInsight="Forward forecast vintages are unavailable for the selected window." />
         </section>
 
         <div className="section-heading"><div><p className="eyebrow">02 · MARKET AND SYSTEM</p><h2>Executable market state</h2></div><span>Reference is diagnostic; bid/ask depth is executable SAMPLE data</span></div>
         <section className="large-chart-stack">
-          <LargeChart title="Market price and order-book quotes" insight={live.chart_insights.market_price} subtitle={`Current spread £${n(live.market.spread_gbp_per_mwh, 2)}/MWh · WAP 10 sell/buy £${n(live.market.sell_wap_10_mwh ?? 0, 2)} / £${n(live.market.buy_wap_10_mwh ?? 0, 2)}.`} series={chart("market_price")} />
-          <LargeChart title="Visible order-book depth" insight={live.chart_insights.market_depth} subtitle="Execution walks bid-side depth for sells and ask-side depth for buys." series={chart("market_depth")} includeZero />
-          <LargeChart title="GB system frequency" insight={live.chart_insights.frequency} subtitle={`${n(live.market.frequency_hz, 3)} Hz now · backend SAMPLE observation tape.`} series={chart("frequency")} />
-          <LargeChart title="System tightness" insight={live.chart_insights.system} subtitle={`Regime ${live.market.market_regime.replaceAll("_", " ")} · tightness ${live.market.system_tightness_score >= 0 ? "+" : ""}${n(live.market.system_tightness_score, 2)}.`} series={chart("system").filter((item) => item.unit === "score")} includeZero />
-          <LargeChart title="Demand and production surprises" insight="Demand and production surprises show which simulated system driver is moving away from its recent baseline." subtitle="Recent deviations used by the SAMPLE forecast update, in MW." series={chart("system").filter((item) => item.unit === "MW")} includeZero />
+          <TimeSeriesChart {...chartFrame} title="Market price and order-book quotes" insight={live.chart_insights.market_price} subtitle={`Current spread £${n(live.market.spread_gbp_per_mwh, 2)}/MWh · WAP 10 sell/buy £${n(live.market.sell_wap_10_mwh ?? 0, 2)} / £${n(live.market.buy_wap_10_mwh ?? 0, 2)}.`} series={rawSeries("market_price")} unavailableInsight="Market price history is unavailable for the selected window." />
+          <TimeSeriesChart {...chartFrame} title="Visible order-book depth" insight={live.chart_insights.market_depth} subtitle="Execution walks bid-side depth for sells and ask-side depth for buys." series={rawSeries("market_depth")} includeZero unavailableInsight="Order-book depth history is unavailable for the selected window." />
+          <TimeSeriesChart {...chartFrame} title="GB system frequency" insight={live.chart_insights.frequency} subtitle={`Deviation from nominal 50 Hz, in mHz · ${n(live.market.frequency_hz, 3)} Hz now · backend SAMPLE observation tape.`} series={rawSeries("frequency")} transform={FREQUENCY_DEVIATION} referenceBands={FREQUENCY_BANDS} unavailableInsight="System frequency history is unavailable for the selected window." />
+          <TimeSeriesChart {...chartFrame} title="System tightness" insight={live.chart_insights.system} subtitle={`Regime ${live.market.market_regime.replaceAll("_", " ")} · tightness ${live.market.system_tightness_score >= 0 ? "+" : ""}${n(live.market.system_tightness_score, 2)}.`} series={rawSeries("system").filter((item) => item.unit === "score")} includeZero unavailableInsight="System tightness history is unavailable for the selected window." />
+          <TimeSeriesChart {...chartFrame} title="Demand and production surprises" insight="Demand and production surprises show which simulated system driver is moving away from its recent baseline." subtitle="Recent deviations used by the SAMPLE forecast update, in MW." series={rawSeries("system").filter((item) => item.unit === "MW")} includeZero unavailableInsight="Surprise history is unavailable for the selected window." />
         </section>
 
         <div className="section-heading"><div><p className="eyebrow">03 · PORTFOLIO AND BATTERY</p><h2>Carried state</h2></div><span>Previous projected path is reconciled only as backend time passes</span></div>
         <section className="large-chart-stack">
-          <LargeChart title="Portfolio Q and pre-action exposure" insight={live.chart_insights.portfolio} subtitle={`Current Q ${n(live.portfolio_battery.current_q_mwh)} MWh · exposure ${live.portfolio_battery.exposure_before_action_mwh >= 0 ? "+" : ""}${n(live.portfolio_battery.exposure_before_action_mwh)} MWh.`} series={chart("portfolio")} includeZero />
-          <LargeChart title="Battery SoC history" insight={live.chart_insights.battery} subtitle={`Current SoC ${n(live.portfolio_battery.current_soc_mwh)} MWh · previous projected ${live.portfolio_battery.previous_projected_soc_mwh === null ? "not yet available" : `${n(live.portfolio_battery.previous_projected_soc_mwh)} MWh`}.`} series={chart("battery").filter((item) => item.unit === "MWh")} focusedScale />
-          {reserveIsFlat ? <FlatSeriesSummary title="Reserve held" insight={live.chart_insights.battery} series={reserveSeries} /> : <LargeChart title="Reserve held" insight="Reserve history shows how committed up/down capability changes with the carried battery state." subtitle={`${n(live.portfolio_battery.reserve_up_held_mw)} MW up · ${n(live.portfolio_battery.reserve_down_held_mw)} MW down.`} series={reserveSeries} includeZero />}
+          <TimeSeriesChart {...chartFrame} title="Portfolio Q and pre-action exposure" insight={live.chart_insights.portfolio} subtitle={`Current Q ${n(live.portfolio_battery.current_q_mwh)} MWh · exposure ${live.portfolio_battery.exposure_before_action_mwh >= 0 ? "+" : ""}${n(live.portfolio_battery.exposure_before_action_mwh)} MWh.`} series={rawSeries("portfolio")} includeZero unavailableInsight="Portfolio history is unavailable for the selected window." />
+          <TimeSeriesChart {...chartFrame} title="Battery SoC history" insight={live.chart_insights.battery} subtitle={`Current SoC ${n(live.portfolio_battery.current_soc_mwh)} MWh · previous projected ${live.portfolio_battery.previous_projected_soc_mwh === null ? "not yet available" : `${n(live.portfolio_battery.previous_projected_soc_mwh)} MWh`}.`} series={rawSeries("battery").filter((item) => item.unit === "MWh")} focusedScale unavailableInsight="Battery SoC history is unavailable for the selected window." />
+          {reserveIsFlat ? <FlatSeriesSummary title="Reserve held" insight={live.chart_insights.battery} series={reserveWindowed} /> : <TimeSeriesChart {...chartFrame} title="Reserve held" insight="Reserve history shows how committed up/down capability changes with the carried battery state." subtitle={`${n(live.portfolio_battery.reserve_up_held_mw)} MW up · ${n(live.portfolio_battery.reserve_down_held_mw)} MW down.`} series={reserveRaw} includeZero unavailableInsight="Reserve history is unavailable for the selected window." />}
         </section>
 
         <section className="live-secondary-grid">

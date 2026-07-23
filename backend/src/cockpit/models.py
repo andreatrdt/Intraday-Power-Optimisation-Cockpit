@@ -1390,13 +1390,75 @@ class OptimisationInteractionPoint(BaseModel):
     settlement_period: int
     display_label: str
     uk_delivery_time: str
-    phase: Literal["historical", "current", "optimised_future"]
+    phase: Literal[
+        "historical_simulated",
+        "historical_confirmed",
+        "current",
+        "optimised_future",
+    ]
     linked_trajectory_row_id: str
     tooltip_payload: dict[str, Any] = Field(default_factory=dict)
     annotation_payload: list[str] = Field(default_factory=list)
     source_mode: SourceMode
     source_provenance: list[str] = Field(default_factory=list)
     explanation_text: str
+
+
+class RollingRunLedgerEntry(BaseModel):
+    """Immutable audit record for the single action applied from a past run."""
+
+    decision_time: datetime
+    settlement_period: int
+    delivery_period: str
+    delivery_start: datetime
+    delivery_end: datetime
+    optimisation_run_id: str
+    forecast_vintage_id: str
+    market_snapshot_id: str
+    q_before_mwh: float
+    buy_mwh: float
+    sell_mwh: float
+    q_after_mwh: float
+    soc_start_mwh: float
+    charge_mw: float
+    discharge_mw: float
+    soc_end_mwh: float
+    reserve_up_mw: float
+    reserve_down_mw: float
+    upward_headroom_mw: float
+    downward_headroom_mw: float
+    upward_duration_coverage_h: float
+    downward_duration_coverage_h: float
+    exposure_before_p10_mwh: float
+    exposure_before_p50_mwh: float
+    exposure_before_p90_mwh: float
+    residual_after_p10_mwh: float
+    residual_after_p50_mwh: float
+    residual_after_p90_mwh: float
+    actual_generation_mwh: float | None = None
+    actual_reference_price_gbp_per_mwh: float | None = None
+    bid_price_gbp_per_mwh: float
+    ask_price_gbp_per_mwh: float
+    bid_depth_mwh: float
+    ask_depth_mwh: float
+    market_wap_gbp_per_mwh: float | None = None
+    consumed_bid_depth_mwh: float = 0.0
+    consumed_ask_depth_mwh: float = 0.0
+    imbalance_cost_gbp: float = 0.0
+    tail_risk_penalty_gbp: float = 0.0
+    degradation_cost_gbp: float = 0.0
+    terminal_soc_value_gbp: float = 0.0
+    reserve_bm_service_value_gbp: float = 0.0
+    optionality_lost_gbp: float = 0.0
+    total_period_contribution_gbp: float = 0.0
+    binding_constraints: list[str] = Field(default_factory=list)
+    explanation: str
+    phase: Literal["HISTORICAL_SIMULATED", "HISTORICAL_CONFIRMED"]
+    source_mode: SourceMode
+    lineage_value_ids: list[str] = Field(default_factory=list)
+    immutable: bool = True
+    fresh_decision_step: bool = True
+    decision_cadence_minutes: int = 30
 
 
 class OptimisationChangeSummary(BaseModel):
@@ -1448,6 +1510,12 @@ class OptimisationRun(BaseModel):
     market_execution_series: list[MarketExecutionPathPoint] = Field(default_factory=list)
     risk_value_series: list[RiskValuePathPoint] = Field(default_factory=list)
     interaction_points: list[OptimisationInteractionPoint] = Field(default_factory=list)
+    rolling_run_ledger: list[RollingRunLedgerEntry] = Field(default_factory=list)
+    historical_history_available: bool = False
+    historical_history_message: str = ""
+    historical_soc_reconciled: bool = True
+    historical_q_reconciled: bool = True
+    reconciliation_warnings: list[str] = Field(default_factory=list)
     whole_path_explanation: str = ""
     risk_measures: list[RiskMeasure] = Field(default_factory=list)
     driver_contributions: list[DriverContribution] = Field(default_factory=list)

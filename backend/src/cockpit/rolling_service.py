@@ -34,6 +34,7 @@ class RollingService:
                 return
             self._initialised = True
             live, periods, cockpit = self.environment.reset()
+            self._ingest_bootstrap_runs()
             self._publish(live, periods, cockpit)
             self.run()
 
@@ -92,6 +93,7 @@ class RollingService:
         with self._lock:
             self._ensure()
             live, periods, cockpit = self.environment.reset()
+            self._ingest_bootstrap_runs()
             self._publish(live, periods, cockpit)
             run = self.run()
             return self.live_state(), run
@@ -182,6 +184,18 @@ class RollingService:
             self.pipeline.lineage_index[point.value_id] = point
         for point in live.lineage_values:
             self.pipeline.lineage_index[point.value_id] = point
+
+    def _ingest_bootstrap_runs(self) -> None:
+        """Expose immutable past SAMPLE runs through the normal run ledger API."""
+        for run in self.environment.bootstrapped_runs:
+            immutable = run.model_copy(deep=True)
+            self.runs[immutable.run_id] = immutable
+            if immutable.run_id not in self.run_order:
+                self.run_order.append(immutable.run_id)
+            for point in immutable.lineage_values:
+                self.pipeline.lineage_index[point.value_id] = point
+        if self.environment.bootstrapped_runs:
+            self.current_run = self.environment.bootstrapped_runs[-1].model_copy(deep=True)
 
     def _ensure(self) -> None:
         if not self._initialised:

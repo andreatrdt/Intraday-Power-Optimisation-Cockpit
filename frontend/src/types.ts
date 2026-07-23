@@ -1104,7 +1104,7 @@ export interface OptimisationPeriodResult {
   values: Record<string, CanonicalDataPoint>;
 }
 
-export type AuctionPathPhase = "historical" | "current" | "optimised_future";
+export type AuctionPathPhase = "historical_simulated" | "historical_confirmed" | "current" | "optimised_future";
 
 export interface BatteryPathPoint {
   settlement_period: number; delivery_period: string; timestamp: string; delivery_end: string; phase: AuctionPathPhase;
@@ -1153,6 +1153,25 @@ export interface OptimisationInteractionPoint {
   source_mode: SourceMode;
   source_provenance: string[];
   explanation_text: string;
+}
+
+export interface RollingRunLedgerEntry {
+  decision_time: string; settlement_period: number; delivery_period: string; delivery_start: string; delivery_end: string;
+  optimisation_run_id: string; forecast_vintage_id: string; market_snapshot_id: string;
+  q_before_mwh: number; buy_mwh: number; sell_mwh: number; q_after_mwh: number;
+  soc_start_mwh: number; charge_mw: number; discharge_mw: number; soc_end_mwh: number;
+  reserve_up_mw: number; reserve_down_mw: number; upward_headroom_mw: number; downward_headroom_mw: number;
+  upward_duration_coverage_h: number; downward_duration_coverage_h: number;
+  exposure_before_p10_mwh: number; exposure_before_p50_mwh: number; exposure_before_p90_mwh: number;
+  residual_after_p10_mwh: number; residual_after_p50_mwh: number; residual_after_p90_mwh: number;
+  actual_generation_mwh: number | null; actual_reference_price_gbp_per_mwh: number | null;
+  bid_price_gbp_per_mwh: number; ask_price_gbp_per_mwh: number; bid_depth_mwh: number; ask_depth_mwh: number;
+  market_wap_gbp_per_mwh: number | null; consumed_bid_depth_mwh: number; consumed_ask_depth_mwh: number;
+  imbalance_cost_gbp: number; tail_risk_penalty_gbp: number; degradation_cost_gbp: number;
+  terminal_soc_value_gbp: number; reserve_bm_service_value_gbp: number; optionality_lost_gbp: number;
+  total_period_contribution_gbp: number; binding_constraints: string[]; explanation: string;
+  phase: "HISTORICAL_SIMULATED" | "HISTORICAL_CONFIRMED"; source_mode: SourceMode;
+  lineage_value_ids: string[]; immutable: boolean; fresh_decision_step: boolean; decision_cadence_minutes: number;
 }
 
 export interface OptimisationChangeSummary {
@@ -1217,6 +1236,12 @@ export interface OptimisationRun {
   market_execution_series: MarketExecutionPathPoint[];
   risk_value_series: RiskValuePathPoint[];
   interaction_points: OptimisationInteractionPoint[];
+  rolling_run_ledger: RollingRunLedgerEntry[];
+  historical_history_available: boolean;
+  historical_history_message: string;
+  historical_soc_reconciled: boolean;
+  historical_q_reconciled: boolean;
+  reconciliation_warnings: string[];
   whole_path_explanation: string;
   risk_measures: RiskMeasure[];
   driver_contributions: DriverContribution[];
