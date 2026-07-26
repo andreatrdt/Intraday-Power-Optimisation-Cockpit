@@ -19,6 +19,8 @@ from cockpit.models import (
     RefreshRequest,
     RegimeRequest,
 )
+from cockpit.decision_orchestrator import ORCHESTRATOR
+from cockpit.decision_service import DECISIONS
 from cockpit.optionality_layer import build_optionality_snapshot
 from cockpit.pipeline import PIPELINE
 from cockpit.position_layer import build_forecast_position
@@ -473,6 +475,47 @@ def coordinator_by_snapshot(snapshot_id: str) -> dict:
 @app.post("/api/v1/coordinator/simulate", tags=["coordinator"])
 def simulate_coordinator(settings: CoordinatorSimulationInput) -> dict:
     return {"coordinator": _coordinator_result(settings=settings).snapshot}
+
+
+@app.get("/api/v1/decisions", tags=["decisions"])
+def list_decisions() -> dict:
+    return {"decisions": DECISIONS.list()}
+
+
+@app.get("/api/v1/decisions/{decision_id}", tags=["decisions"])
+def get_decision(decision_id: str) -> dict:
+    decision = DECISIONS.get(decision_id)
+    if decision is None:
+        raise HTTPException(status_code=404, detail=f"Unknown decision '{decision_id}'")
+    return {"decision": decision}
+
+
+@app.get("/api/v1/decision-batches", tags=["decisions"])
+def list_decision_batches() -> dict:
+    return {"batches": DECISIONS.list_batches()}
+
+
+@app.get("/api/v1/decision-batches/{batch_id}", tags=["decisions"])
+def get_decision_batch(batch_id: str) -> dict:
+    batch = DECISIONS.get_batch(batch_id)
+    if batch is None:
+        raise HTTPException(status_code=404, detail=f"Unknown decision batch '{batch_id}'")
+    return {"batch": batch}
+
+
+@app.post("/api/v1/decisions/refresh", tags=["decisions"])
+def refresh_decisions() -> dict:
+    """Read current rolling state, compute forecast revisions and create only new
+    material single-period decisions. Non-executable and diagnostic-only."""
+    result = ORCHESTRATOR.refresh()
+    return {
+        "refresh": result,
+        "created": [DECISIONS.get(decision_id) for decision_id in result.created_decision_ids],
+        "existing": [DECISIONS.get(decision_id) for decision_id in result.duplicate_decision_ids],
+        "batch": DECISIONS.get_batch(result.batch_id) if result.batch_id else None,
+        "diagnostic_only": True,
+        "trustworthy_for_live_trading": False,
+    }
 
 
 @app.get("/api/v1/cockpit", tags=["snapshots"])

@@ -208,11 +208,16 @@ class DecisionContext(_Frozen):
     trustworthy_for_live_trading: bool = False
     forecast_vintage_id: str | None = None
     previous_forecast_vintage_id: str | None = None
+    forecast_revision_id: str | None = None
     market_snapshot_id: str | None = None
     optimisation_run_id: str | None = None
     minutes_to_gate_closure: float | None = None
 
     # Exposure before action (this period) ----------------------------------
+    # The *_exposure_before_mwh fields are the LATEST (post-revision, pre-hedge)
+    # exposures. The PREVIOUS-vintage exposures live on the linked
+    # ForecastRevision (see forecast_revision_id) — the single source of truth,
+    # not duplicated here.
     position_before_mwh: float | None = None
     forecast_revision_mwh: float | None = None
     p10_exposure_before_mwh: float | None = None
