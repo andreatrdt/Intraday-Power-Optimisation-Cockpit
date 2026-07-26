@@ -167,6 +167,12 @@ class RollingService:
             raise RuntimeError("No rolling optimisation run exists")
         return self.current_run.model_copy(deep=True)
 
+    def forecast_vintage_snapshots(self):
+        """Retained complete forecast vintages (immutable), newest handling left
+        to the caller. Used by the decision orchestrator's forecast adapter."""
+        self._ensure()
+        return self.environment.recent_forecast_vintages()
+
     def list_runs(self) -> list[OptimisationRun]:
         self._ensure()
         return [self.runs[run_id].model_copy(deep=True) for run_id in reversed(self.run_order)]

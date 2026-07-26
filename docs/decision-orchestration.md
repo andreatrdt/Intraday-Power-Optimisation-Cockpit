@@ -22,35 +22,33 @@ or controls an asset.
 ## Adapter behaviour
 
 `DecisionOrchestrator.build_rolling_snapshot()` converts the current
-rolling/cockpit structures into an `AdapterSnapshot`:
+rolling/cockpit structures into an `AdapterSnapshot`. Forecast points come from
+the **retained complete vintages** (see
+[forecast-vintages.md](forecast-vintages.md)):
 
-* **one `VintageForecastPoint` per settlement period**, built from the current
-  `OptimisationPeriodInput` (full P10/P50/P90);
-* `published_at` taken from the period's canonical `generation_p50_mwh` lineage
-  (genuine publication time), never fabricated;
-* `source_mode` and `quality` taken from the same lineage;
-* `lineage_value_ids` = the P10/P50/P90 canonical value IDs;
-* `q_by_period` and `gate_closure_by_period` from the period inputs;
-* `optimiser_by_sp` from the current optimiser run's `projected_trajectory`
-  (buy/sell/charge/discharge/prices/tradeable per settlement period);
+* it selects the **two newest eligible** full vintages (`published_at ≤ as_of`,
+  ordered by `(published_at, vintage_id)`) and emits their per-period
+  `VintageForecastPoint`s — a genuine latest and previous per settlement period;
+* each point preserves the vintage's `published_at`, `source_mode`, `quality`
+  and the quantiles' genuine `lineage_value_ids` — nothing is fabricated;
+* `q_by_period` and `gate_closure_by_period` come from the current period inputs;
+* `optimiser_by_sp` from the current optimiser run's `projected_trajectory`;
 * `market_snapshot_id` and `optimisation_run_id` preserved.
 
-No future vintage can enter the calculation: the revision service filters to
-`published_at ≤ as_of` and a look-ahead guard rejects any *selected* future
-point.
+No future vintage can enter the calculation: the store filters to
+`published_at ≤ as_of` and the revision service's look-ahead guard rejects any
+*selected* future point.
 
 ## Incomplete-vintage handling
 
-The SAMPLE environment retains only the **latest** vintage's full quantiles (plus
-a P50-only "previous"). The adapter therefore emits **only the latest** full
-point per period and **does not manufacture** a previous P10/P90 from the latest
-spread or from P50. With no previous full vintage, the revision service reports
-those periods as `MISSING_PREVIOUS_VINTAGE`, which surfaces as a `FORECAST`-stage
-`DecisionSkip`. This is the honest current behaviour (see limitations).
+When only one eligible vintage exists for a period (e.g. the very first refresh),
+no previous full quantiles are available and the revision service reports that
+period as `MISSING_PREVIOUS_VINTAGE` (a `FORECAST`-stage `DecisionSkip`). A
+previous P10/P90 is **never** manufactured from the latest spread or from P50 —
+the fix is genuine retention, not reconstruction.
 
-The orchestrator's `process(snapshot)` accepts any `AdapterSnapshot`, so a caller
-(or a future environment) that genuinely has two full vintages per period will
-produce revisions and decisions without code changes.
+The orchestrator's `process(snapshot)` accepts any `AdapterSnapshot`, so tests
+drive it directly with two-vintage snapshots.
 
 ## Decision creation rules
 
@@ -136,6 +134,9 @@ The refresh response echoes `diagnostic_only: true` and
 | `GET /api/v1/decision-batches` | `{ "batches": [DecisionBatch, …] }` |
 | `GET /api/v1/decision-batches/{batch_id}` | `{ "batch": DecisionBatch }` or 404 |
 | `POST /api/v1/decisions/refresh` | `{ refresh: DecisionRefreshResult, created: [...], existing: [...], batch, diagnostic_only, trustworthy_for_live_trading }` |
+| `GET /api/v1/forecast-revisions` | `{ "revisions": [ForecastRevision, …] }` |
+| `GET /api/v1/forecast-revisions/{revision_id}` | `{ "revision": ForecastRevision }` or 404 |
+| `GET /api/v1/forecast-revision-runs` | `{ "runs": [ForecastRevisionRun, …] }` |
 
 `DecisionRefreshResult` carries `created_decision_ids`, `batch_id`,
 `duplicate_decision_ids`, and a `skipped` list of `DecisionSkip`
@@ -153,13 +154,11 @@ milestone.
 
 ## Current SAMPLE limitations
 
-* The SAMPLE environment does not retain the previous vintage's full P10/P90, so
-  `POST /api/v1/decisions/refresh` on the live SAMPLE state creates **no**
-  decisions and returns `MISSING_PREVIOUS_VINTAGE` skips. This is intended and
-  honest — decision creation is demonstrated in tests by injecting a two-vintage
-  `AdapterSnapshot`. A later environment change (or a real feed) that preserves
-  full previous quantiles enables end-to-end creation with no orchestrator
-  change.
+* As of Milestone 3.5 the SAMPLE environment **retains complete previous
+  vintages**, so `POST /api/v1/decisions/refresh` creates decisions end-to-end
+  after ≥2 refreshes with a material forecast change (see
+  [forecast-vintages.md](forecast-vintages.md)). A single vintage still yields
+  `MISSING_PREVIOUS_VINTAGE`, and a non-material change yields `NON_MATERIAL`.
 * `trustworthy_for_live_trading` is always `False` in this milestone (no live
   source is configured).
 * Recommendation urgency / limit price / £-risk / expected values are

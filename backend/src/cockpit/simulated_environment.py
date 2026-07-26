@@ -49,6 +49,11 @@ from cockpit.models import (
     SourceMode,
     ValidationCheck,
 )
+from cockpit.forecast_vintages import (
+    ForecastVintagePeriod,
+    ForecastVintageSnapshot,
+    ForecastVintageStore,
+)
 from cockpit.settlement import LONDON, PERIOD, UTC, auction_window_periods, daily_auction_boundaries, settlement_period_for_instant, upcoming_periods
 
 
@@ -100,6 +105,7 @@ class SimulatedEnvironment:
         self._previous_production_mw: float | None = None
         self._previous_demand_mw: float | None = None
         self._previous_inputs: list[OptimisationPeriodInput] = []
+        self.vintage_store = ForecastVintageStore()
         self.live_state: LiveStateSnapshot | None = None
         self.cockpit_snapshot: CockpitSnapshot | None = None
 
@@ -139,6 +145,7 @@ class SimulatedEnvironment:
         self._previous_production_mw = None
         self._previous_demand_mw = None
         self._previous_inputs = []
+        self.vintage_store.clear()
         self.bootstrap_auction_history()
         return self.refresh(reason="Sample rolling environment reset")
 
@@ -630,12 +637,58 @@ class SimulatedEnvironment:
             warnings=warnings,
         )
         cockpit = self._cockpit_snapshot(snapshot_id, as_of, periods, lineage_values)
+        self._retain_vintage(forecast_vintage_id, as_of, periods)
         self.previous_forecast_vintage_id = forecast_vintage_id
         self.previous_market_snapshot_id = market_snapshot_id
         self._previous_inputs = [period.model_copy(deep=True) for period in periods]
         self.live_state = live
         self.cockpit_snapshot = cockpit
         return live, periods, cockpit
+
+    def _retain_vintage(self, vintage_id, as_of, periods) -> None:
+        """Capture the current periods as a complete, immutable forecast vintage.
+
+        Full P10/P50/P90 and their genuine lineage IDs are preserved verbatim;
+        nothing is reconstructed. The previous complete vintage is already held
+        by the store from the prior refresh, so no reconstruction is needed.
+        """
+        vintage_periods = []
+        for period in periods:
+            p50 = period.values.get("generation_p50_mwh")
+            lineage_ids = tuple(
+                period.values[key].value_id
+                for key in ("generation_p10_mwh", "generation_p50_mwh", "generation_p90_mwh")
+                if key in period.values
+            )
+            vintage_periods.append(
+                ForecastVintagePeriod(
+                    settlement_period=period.settlement_period,
+                    delivery_period=period.delivery_period,
+                    delivery_start=period.delivery_start,
+                    delivery_end=period.delivery_end,
+                    p10_mwh=period.generation_p10_mwh,
+                    p50_mwh=period.generation_p50_mwh,
+                    p90_mwh=period.generation_p90_mwh,
+                    unit="MWh",
+                    lineage_value_ids=lineage_ids,
+                )
+            )
+        source_mode = p50.lineage.source_mode if p50 else SourceMode.SAMPLE
+        quality = p50.lineage.quality if p50 else Quality.FRESH
+        self.vintage_store.retain(
+            ForecastVintageSnapshot(
+                vintage_id=vintage_id,
+                published_at=as_of,
+                as_of=as_of,
+                source_mode=source_mode,
+                quality=quality,
+                periods=tuple(vintage_periods),
+            )
+        )
+
+    def recent_forecast_vintages(self) -> tuple[ForecastVintageSnapshot, ...]:
+        """All retained complete vintages, in chronological order (immutable)."""
+        return self.vintage_store.all()
 
     def _record_history(self, as_of, production, market, portfolio, first) -> None:
         if not self.history:

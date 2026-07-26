@@ -313,28 +313,93 @@ def test_stored_decision_is_frozen(orchestrator):
 
 
 # ---------------------------------------------------------------------------
-# Rolling adapter (integration with the real SAMPLE environment)
+# Rolling adapter — end-to-end with the real SAMPLE environment (isolated)
 # ---------------------------------------------------------------------------
 
 
-def test_rolling_adapter_builds_latest_points_only_and_skips():
-    from cockpit.rolling_service import ROLLING
+def _isolated_rolling():
+    """A fresh RollingService + environment + pipeline, so tests do not mutate
+    or depend on the global ROLLING singleton."""
+    from cockpit.pipeline import DataFlowPipeline
+    from cockpit.rolling_service import RollingService
+    from cockpit.simulated_environment import SimulatedEnvironment
 
-    ROLLING.initialise()
-    orchestrator = DecisionOrchestrator(decisions=DecisionStore(), rolling=ROLLING)
+    rolling = RollingService(DataFlowPipeline(), SimulatedEnvironment())
+    rolling.initialise()
+    return rolling
+
+
+def test_first_vintage_only_skips_missing_previous():
+    rolling = _isolated_rolling()
+    assert len(rolling.forecast_vintage_snapshots()) == 1
+    orchestrator = DecisionOrchestrator(decisions=DecisionStore(), rolling=rolling)
     snap = orchestrator.build_rolling_snapshot()
-
-    assert snap.run_mode is RunMode.SAMPLE_DEMO
-    assert len(snap.forecast_points) == len(ROLLING.period_inputs)
-    # Exactly one (latest) vintage per settlement period — no manufactured previous.
+    # One eligible vintage -> one point per settlement period, no previous.
     per_sp: dict[int, int] = {}
     for point in snap.forecast_points:
         per_sp[point.settlement_period] = per_sp.get(point.settlement_period, 0) + 1
         assert point.published_at <= snap.as_of
         assert point.source_mode.value == "SAMPLE"
-    assert all(count == 1 for count in per_sp.values())
-
-    # With no previous full quantiles, the SAMPLE path creates nothing and says so.
+    assert per_sp and all(count == 1 for count in per_sp.values())
     result = orchestrator.process(snap)
     assert result.created_decision_ids == ()
     assert any(s.code == "MISSING_PREVIOUS_VINTAGE" for s in result.skipped)
+
+
+def test_material_sample_refresh_creates_decisions_end_to_end():
+    from cockpit.models import SampleRegime
+
+    rolling = _isolated_rolling()
+    store = DecisionStore()
+    orchestrator = DecisionOrchestrator(decisions=store, rolling=rolling)
+    assert orchestrator.refresh().created_decision_ids == ()  # only one vintage yet
+
+    rolling.set_regime(SampleRegime.WIND_FORECAST_MISS)  # material forecast change -> 2nd vintage
+    assert len(rolling.forecast_vintage_snapshots()) == 2
+    result = orchestrator.refresh()
+
+    assert len(result.created_decision_ids) >= 1
+    assert result.batch_id is not None
+    batch = store.get_batch(result.batch_id)
+    assert set(batch.decision_ids) == set(result.created_decision_ids)
+    decision = store.get(result.created_decision_ids[0])
+    # The decision links to a retrievable supporting revision.
+    assert orchestrator.revision(decision.context.forecast_revision_id) is not None
+    assert decision.context.run_mode is RunMode.SAMPLE_DEMO
+    assert decision.context.trustworthy_for_live_trading is False
+
+
+def test_non_material_sample_refresh_creates_none():
+    rolling = _isolated_rolling()
+    orchestrator = DecisionOrchestrator(decisions=DecisionStore(), rolling=rolling)
+    orchestrator.refresh()  # one vintage
+    rolling.refresh()  # second vintage, same regime/step -> no material change
+    assert len(rolling.forecast_vintage_snapshots()) == 2
+    result = orchestrator.refresh()
+    assert result.created_decision_ids == ()
+    assert any(s.code == "NON_MATERIAL" for s in result.skipped)
+
+
+def test_repeated_sample_refresh_is_idempotent():
+    from cockpit.models import SampleRegime
+
+    rolling = _isolated_rolling()
+    rolling.set_regime(SampleRegime.WIND_FORECAST_MISS)
+    store = DecisionStore()
+    orchestrator = DecisionOrchestrator(decisions=store, rolling=rolling)
+    first = orchestrator.refresh()
+    assert len(first.created_decision_ids) >= 1
+    second = orchestrator.refresh()  # rolling state unchanged
+    assert second.created_decision_ids == ()
+    assert set(second.duplicate_decision_ids) == set(first.created_decision_ids)
+
+
+def test_environment_reset_clears_vintage_state():
+    from cockpit.models import SampleRegime
+
+    rolling = _isolated_rolling()
+    rolling.set_regime(SampleRegime.WIND_FORECAST_MISS)
+    assert len(rolling.forecast_vintage_snapshots()) == 2
+    rolling.reset()
+    # Reset clears retained vintages and re-seeds a clean deterministic initial one.
+    assert len(rolling.forecast_vintage_snapshots()) == 1

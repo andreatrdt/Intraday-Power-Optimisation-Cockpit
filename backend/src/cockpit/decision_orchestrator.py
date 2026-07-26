@@ -45,7 +45,7 @@ from cockpit.forecast_revision import (
     ForecastRevisionService,
     VintageForecastPoint,
 )
-from cockpit.models import Quality, SourceMode
+from cockpit.models import Quality
 
 _ACTION_TOLERANCE_MWH = 1e-6
 
@@ -272,11 +272,25 @@ class DecisionOrchestrator:
         self.revision_service = revision_service or ForecastRevisionService()
         self._rolling = rolling  # resolved lazily so importing is cheap
         self._revisions: dict[str, ForecastRevision] = {}
+        self._runs: list[ForecastRevisionRun] = []
+        self._max_runs = 50
 
-    # -- revision access ----------------------------------------------------
+    # -- revision / run access ----------------------------------------------
 
     def revision(self, revision_id: str) -> ForecastRevision | None:
         return self._revisions.get(revision_id)
+
+    def revisions(self) -> list[ForecastRevision]:
+        return list(self._revisions.values())
+
+    def runs(self) -> list[ForecastRevisionRun]:
+        return list(self._runs)
+
+    def reset(self) -> None:
+        """Clear retained revisions/runs. Does not touch the decision store or
+        the rolling environment — see docs/forecast-vintages.md on isolation."""
+        self._revisions.clear()
+        self._runs.clear()
 
     # -- rolling-driven refresh --------------------------------------------
 
@@ -287,46 +301,30 @@ class DecisionOrchestrator:
     def build_rolling_snapshot(self) -> AdapterSnapshot:
         """Adapt the current rolling/cockpit structures to an AdapterSnapshot.
 
-        Builds one genuine full-quantile LATEST point per settlement period. The
-        SAMPLE environment does not retain the previous vintage's full P10/P90,
-        so no previous point is manufactured — the revision service then reports
-        those periods as ``MISSING_PREVIOUS_VINTAGE`` (see docs).
+        Forecast points come from the retained complete vintages: the two newest
+        eligible (``published_at <= as_of``) full vintages, so the revision
+        service has a genuine latest and previous per period. No quantile is ever
+        reconstructed. Q, Gate Closure and the optimiser recommendation come from
+        the current rolling/optimiser state.
         """
         rolling = self._resolve_rolling()
         live = rolling.live_state()
         run = rolling.current_optimisation()
         periods = list(rolling.period_inputs)
+        as_of = live.state.current_time
 
-        points: list[VintageForecastPoint] = []
+        eligible = sorted(
+            (vintage for vintage in rolling.forecast_vintage_snapshots() if vintage.published_at <= as_of),
+            key=lambda vintage: (vintage.published_at, vintage.vintage_id),
+        )
+        selected = eligible[-2:]  # latest + immediate previous eligible vintage
+        points: list[VintageForecastPoint] = [
+            point for vintage in selected for point in self._vintage_to_points(vintage)
+        ]
+
         q_by_period: dict[str, float] = {}
         gate_by_period: dict[str, datetime] = {}
         for period in periods:
-            p50 = period.values.get("generation_p50_mwh")
-            published_at = p50.lineage.published_at if p50 and p50.lineage.published_at else live.state.current_time
-            source_mode = p50.lineage.source_mode if p50 else SourceMode.SAMPLE
-            quality = p50.lineage.quality if p50 else Quality.FRESH
-            lineage_ids = tuple(
-                period.values[key].value_id
-                for key in ("generation_p10_mwh", "generation_p50_mwh", "generation_p90_mwh")
-                if key in period.values
-            )
-            points.append(
-                VintageForecastPoint(
-                    vintage_id=live.state.current_forecast_vintage_id,
-                    published_at=published_at,
-                    settlement_period=period.settlement_period,
-                    delivery_period=period.delivery_period,
-                    delivery_start=period.delivery_start,
-                    delivery_end=period.delivery_end,
-                    p10_mwh=period.generation_p10_mwh,
-                    p50_mwh=period.generation_p50_mwh,
-                    p90_mwh=period.generation_p90_mwh,
-                    unit="MWh",
-                    source_mode=source_mode,
-                    quality=quality,
-                    lineage_value_ids=lineage_ids,
-                )
-            )
             q_by_period[period.delivery_period] = period.contracted_q_mwh
             gate_by_period[period.delivery_period] = period.gate_closure_at
 
@@ -357,6 +355,29 @@ class DecisionOrchestrator:
             optimiser_by_sp=optimiser_by_sp,
         )
 
+    @staticmethod
+    def _vintage_to_points(vintage) -> list[VintageForecastPoint]:
+        """Convert a retained complete vintage into per-period forecast points,
+        preserving each quantile's original lineage IDs verbatim."""
+        return [
+            VintageForecastPoint(
+                vintage_id=vintage.vintage_id,
+                published_at=vintage.published_at,
+                settlement_period=period.settlement_period,
+                delivery_period=period.delivery_period,
+                delivery_start=period.delivery_start,
+                delivery_end=period.delivery_end,
+                p10_mwh=period.p10_mwh,
+                p50_mwh=period.p50_mwh,
+                p90_mwh=period.p90_mwh,
+                unit=period.unit,
+                source_mode=vintage.source_mode,
+                quality=vintage.quality,
+                lineage_value_ids=period.lineage_value_ids,
+            )
+            for period in vintage.periods
+        ]
+
     # -- core processing ----------------------------------------------------
 
     def process(self, snapshot: AdapterSnapshot, *, now: datetime | None = None) -> DecisionRefreshResult:
@@ -372,6 +393,9 @@ class DecisionOrchestrator:
         )
         for revision in run.revisions:
             self._revisions[revision.revision_id] = revision
+        self._runs.append(run)
+        if len(self._runs) > self._max_runs:
+            del self._runs[0]
 
         skips: list[DecisionSkip] = list(snapshot.adapter_skips)
         skips.extend(

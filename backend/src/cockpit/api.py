@@ -518,6 +518,24 @@ def refresh_decisions() -> dict:
     }
 
 
+@app.get("/api/v1/forecast-revisions", tags=["decisions"])
+def list_forecast_revisions() -> dict:
+    return {"revisions": ORCHESTRATOR.revisions()}
+
+
+@app.get("/api/v1/forecast-revisions/{revision_id}", tags=["decisions"])
+def get_forecast_revision(revision_id: str) -> dict:
+    revision = ORCHESTRATOR.revision(revision_id)
+    if revision is None:
+        raise HTTPException(status_code=404, detail=f"Unknown forecast revision '{revision_id}'")
+    return {"revision": revision}
+
+
+@app.get("/api/v1/forecast-revision-runs", tags=["decisions"])
+def list_forecast_revision_runs() -> dict:
+    return {"runs": ORCHESTRATOR.runs()}
+
+
 @app.get("/api/v1/cockpit", tags=["snapshots"])
 def cockpit() -> dict:
     if PIPELINE.current_snapshot is None:
