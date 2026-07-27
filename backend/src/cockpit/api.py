@@ -20,7 +20,9 @@ from cockpit.models import (
     RegimeRequest,
 )
 from cockpit.decision_orchestrator import ORCHESTRATOR
+from cockpit.decision_prioritisation import HEDGE_TIMING
 from cockpit.decision_service import DECISIONS
+from cockpit.hedge_timing_models import AssessTimingRequest
 from cockpit.optionality_layer import build_optionality_snapshot
 from cockpit.pipeline import PIPELINE
 from cockpit.position_layer import build_forecast_position
@@ -534,6 +536,41 @@ def get_forecast_revision(revision_id: str) -> dict:
 @app.get("/api/v1/forecast-revision-runs", tags=["decisions"])
 def list_forecast_revision_runs() -> dict:
     return {"runs": ORCHESTRATOR.runs()}
+
+
+@app.post("/api/v1/decisions/assess-timing", tags=["hedge-timing"])
+def assess_decision_timing(request: AssessTimingRequest | None = None) -> dict:
+    """Assess hedge timing for stored decisions using current observable
+    conditions. Diagnostic-only, non-executable; not a price forecast."""
+    payload = request or AssessTimingRequest()
+    result = HEDGE_TIMING.assess_from_rolling(payload.decision_ids)
+    return {"assessment": result, "diagnostic_only": True, "trustworthy_for_live_trading": False}
+
+
+@app.get("/api/v1/hedge-timing-assessments", tags=["hedge-timing"])
+def list_hedge_timing_assessments() -> dict:
+    return {"assessments": HEDGE_TIMING.list_assessments()}
+
+
+@app.get("/api/v1/hedge-timing-assessments/{assessment_id}", tags=["hedge-timing"])
+def get_hedge_timing_assessment(assessment_id: str) -> dict:
+    assessment = HEDGE_TIMING.get_assessment(assessment_id)
+    if assessment is None:
+        raise HTTPException(status_code=404, detail=f"Unknown hedge-timing assessment '{assessment_id}'")
+    return {"assessment": assessment}
+
+
+@app.get("/api/v1/decision-batch-summaries", tags=["hedge-timing"])
+def list_decision_batch_summaries() -> dict:
+    return {"summaries": HEDGE_TIMING.batch_summaries()}
+
+
+@app.get("/api/v1/decision-batch-summaries/{batch_id}", tags=["hedge-timing"])
+def get_decision_batch_summary(batch_id: str) -> dict:
+    summary = HEDGE_TIMING.batch_summary(batch_id)
+    if summary is None:
+        raise HTTPException(status_code=404, detail=f"Unknown decision batch '{batch_id}'")
+    return {"summary": summary}
 
 
 @app.get("/api/v1/cockpit", tags=["snapshots"])
