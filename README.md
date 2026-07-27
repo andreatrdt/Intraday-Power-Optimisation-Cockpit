@@ -1,9 +1,13 @@
 # Intraday Power Optimisation Cockpit
 
-The product is a rolling UK intraday decision-support cockpit with two primary pages:
+The product is a rolling UK intraday decision-support cockpit with three primary pages:
 
 - **Live Market State** (`/live`) shows what is changing now.
 - **Rolling Optimisation** (`/optimisation`) solves and explains the suggested future path.
+- **Trader Decision Queue** (`/decisions`) presents the trader-in-the-loop workflow as a ranked,
+  concise decision queue with hedge-timing verdicts, priority and a per-decision evidence drawer.
+  It is diagnostic-only and **does not execute trades**. See
+  [docs/trader-decision-ui.md](docs/trader-decision-ui.md).
 
 The earlier layer pages remain available under **Diagnostics** (`/diagnostics`) and consume the
 current rolling-state snapshot. The application deliberately contains no backtester, replay UI,

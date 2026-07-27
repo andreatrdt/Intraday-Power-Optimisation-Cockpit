@@ -1251,3 +1251,367 @@ export interface OptimisationRun {
   immutable: boolean;
   not_executable: boolean;
 }
+
+// ---------------------------------------------------------------------------
+// Trader decision workflow (Milestones 1–5)
+// ---------------------------------------------------------------------------
+
+export type RunMode = "SAMPLE_DEMO" | "HISTORICAL_REPLAY" | "LIVE_OBSERVATION";
+export type DecisionStatus =
+  | "PROPOSED" | "ACCEPTED" | "MODIFIED" | "REJECTED" | "DELAYED"
+  | "SUBMITTED" | "PARTIALLY_FILLED" | "FILLED" | "CANCELLED" | "EXPIRED"
+  | "DELIVERED" | "SETTLED" | "EVALUATED";
+export type TriggerType =
+  | "FORECAST_REVISION" | "MARKET_MOVE" | "POSITION_CHANGE"
+  | "GATE_CLOSURE_APPROACHING" | "RISK_LIMIT_BREACH" | "MANUAL" | "SCHEDULED_REVIEW";
+export type RecommendedAction = "BUY" | "SELL" | "PARTIAL_HEDGE" | "WAIT" | "NO_ACTION";
+export type Urgency = "NONE" | "LOW" | "MEDIUM" | "HIGH" | "IMMEDIATE";
+export type ConfidenceBasis = "HISTORICAL_CALIBRATION" | "ASSUMPTION_BASED" | "UNAVAILABLE";
+export type TraderAction = "ACCEPT" | "MODIFY" | "REJECT" | "DELAY";
+export type DecisionActor = "MODEL" | "TRADER" | "SYSTEM" | "MARKET";
+export type CalibrationBasis = "CALIBRATED" | "SAMPLE_DERIVED" | "ASSUMPTION_BASED" | "UNAVAILABLE";
+export type TimingVerdict = "HEDGE_NOW" | "PARTIAL_HEDGE_NOW" | "WAIT" | "NO_ACTION";
+export type TimingPriority = "CRITICAL" | "HIGH" | "MEDIUM" | "LOW" | "INFORMATIONAL";
+
+export interface DecisionContext {
+  settlement_period: number;
+  delivery_period: string;
+  delivery_start: string;
+  delivery_end: string;
+  as_of: string;
+  trigger_type: TriggerType;
+  trigger_description: string;
+  run_mode: RunMode;
+  source_mode: SourceMode;
+  quality: Quality;
+  calculation_allowed: boolean;
+  trustworthy_for_live_trading: boolean;
+  forecast_vintage_id: string | null;
+  previous_forecast_vintage_id: string | null;
+  forecast_revision_id: string | null;
+  market_snapshot_id: string | null;
+  optimisation_run_id: string | null;
+  minutes_to_gate_closure: number | null;
+  position_before_mwh: number | null;
+  forecast_revision_mwh: number | null;
+  p10_exposure_before_mwh: number | null;
+  p50_exposure_before_mwh: number | null;
+  p90_exposure_before_mwh: number | null;
+}
+
+export interface ModelRecommendation {
+  action: RecommendedAction;
+  buy_mwh: number;
+  sell_mwh: number;
+  limit_price: number | null;
+  urgency: Urgency;
+  confidence_score: number | null;
+  confidence_basis: ConfidenceBasis;
+  risk_if_no_action_gbp: number | null;
+  expected_action_value_gbp: number | null;
+  expected_wait_value_gbp: number | null;
+  reasoning: string[];
+}
+
+export interface DecisionTransition {
+  sequence: number;
+  from_status: DecisionStatus | null;
+  to_status: DecisionStatus;
+  occurred_at: string;
+  actor: DecisionActor;
+  reason: string;
+}
+
+export interface TraderInstruction {
+  action: TraderAction;
+  decided_at: string;
+  buy_mwh: number | null;
+  sell_mwh: number | null;
+  limit_price: number | null;
+  rationale: string | null;
+  delayed_until: string | null;
+}
+
+export interface ExecutionResult {
+  status: string;
+  submitted_at: string;
+  requested_mwh: number;
+  executed_buy_mwh: number;
+  executed_sell_mwh: number;
+  average_execution_price: number | null;
+  execution_cost_gbp: number | null;
+  execution_fees_gbp: number | null;
+  execution_slippage_gbp_per_mwh: number | null;
+  unfilled_volume_mwh: number;
+  last_update_at: string | null;
+}
+
+export interface SettlementResult {
+  realised_generation_mwh: number | null;
+  position_after_mwh: number | null;
+  realised_reference_price: number | null;
+  realised_imbalance_mwh: number | null;
+  realised_pnl_gbp: number | null;
+  delivered_at: string | null;
+  settled_at: string | null;
+}
+
+export interface TradeDecision {
+  decision_id: string;
+  created_at: string;
+  status: DecisionStatus;
+  context: DecisionContext;
+  recommendation: ModelRecommendation;
+  trader_instruction: TraderInstruction | null;
+  execution_result: ExecutionResult | null;
+  settlement_result: SettlementResult | null;
+  evaluation_result: unknown | null;
+  transitions: DecisionTransition[];
+  batch_id: string | null;
+  diagnostic_only: boolean;
+  not_executable: boolean;
+}
+
+export interface DecisionBatch {
+  batch_id: string;
+  created_at: string;
+  trigger_type: TriggerType;
+  trigger_description: string;
+  run_mode: RunMode;
+  source_mode: SourceMode;
+  quality: Quality;
+  decision_ids: string[];
+  affected_delivery_periods: string[];
+}
+
+export interface ForecastComparison {
+  previous_p10_mwh: number;
+  previous_p50_mwh: number;
+  previous_p90_mwh: number;
+  latest_p10_mwh: number;
+  latest_p50_mwh: number;
+  latest_p90_mwh: number;
+  delta_p10_mwh: number;
+  delta_p50_mwh: number;
+  delta_p90_mwh: number;
+  previous_uncertainty_width_mwh: number;
+  latest_uncertainty_width_mwh: number;
+  uncertainty_width_change_mwh: number;
+  absolute_revision_mwh: number;
+  percentage_revision: number | null;
+  forecast_horizon_minutes: number;
+  unit: string;
+}
+
+export interface PortfolioEffect {
+  contracted_position_q_mwh: number;
+  previous_p10_exposure_mwh: number;
+  previous_p50_exposure_mwh: number;
+  previous_p90_exposure_mwh: number;
+  latest_p10_exposure_mwh: number;
+  latest_p50_exposure_mwh: number;
+  latest_p90_exposure_mwh: number;
+  delta_p50_exposure_mwh: number;
+  direction_before: string;
+  direction_after: string;
+  crossed_zero_exposure: boolean;
+}
+
+export interface RevisionSignificance {
+  revision_z_score: number | null;
+  error_std_mwh: number | null;
+  revision_significance_score: number | null;
+  calibration_basis: CalibrationBasis;
+  calibration_sample_size: number;
+  calibration_horizon_bucket: string;
+  note: string | null;
+}
+
+export interface MaterialityAssessment {
+  absolute_volume_material: boolean;
+  standardised_revision_material: boolean;
+  exposure_change_material: boolean;
+  direction_flip_material: boolean;
+  gate_closure_material: boolean;
+  signal_materiality_score: number;
+  is_material: boolean;
+  materiality_reasons: string[];
+}
+
+export interface ForecastRevision {
+  revision_id: string;
+  calculated_at: string;
+  as_of: string;
+  settlement_period: number;
+  delivery_period: string;
+  delivery_start: string;
+  delivery_end: string;
+  latest_forecast_vintage_id: string;
+  previous_forecast_vintage_id: string;
+  latest_publication_time: string;
+  previous_publication_time: string;
+  source_mode: SourceMode;
+  quality: Quality;
+  run_mode: RunMode;
+  lineage_value_ids: string[];
+  comparison: ForecastComparison;
+  portfolio: PortfolioEffect;
+  significance: RevisionSignificance;
+  materiality: MaterialityAssessment;
+}
+
+export interface SkippedPeriod {
+  settlement_period: number;
+  delivery_period: string | null;
+  error_code: string;
+  message: string;
+}
+
+export interface ForecastRevisionRun {
+  run_id: string;
+  calculated_at: string;
+  as_of: string;
+  latest_vintage_id: string | null;
+  run_mode: RunMode;
+  revisions: ForecastRevision[];
+  batch: unknown | null;
+  trigger_candidate_ids: string[];
+  skipped: SkippedPeriod[];
+}
+
+export interface TimingMarketView {
+  settlement_period: number;
+  delivery_period: string;
+  market_snapshot_id: string | null;
+  optimisation_run_id: string | null;
+  available: boolean;
+  tradeable: boolean;
+  recommended_side: string;
+  required_volume_mwh: number;
+  best_bid_gbp_per_mwh: number | null;
+  best_ask_gbp_per_mwh: number | null;
+  spread_gbp_per_mwh: number | null;
+  bid_depth_mwh: number | null;
+  ask_depth_mwh: number | null;
+  executable_volume_mwh: number | null;
+  wap_gbp_per_mwh: number | null;
+  wap_slippage_gbp_per_mwh: number | null;
+}
+
+export interface PriorityComponents {
+  gate_closure_component: number;
+  exposure_component: number;
+  tail_exposure_component: number;
+  significance_component: number;
+  direction_flip_component: number;
+  liquidity_component: number;
+  spread_slippage_penalty: number;
+  trust_quality_component: number;
+  weighted_total: number;
+}
+
+export interface HedgeTimingAssessment {
+  assessment_id: string;
+  decision_id: string;
+  assessed_at: string;
+  settlement_period: number;
+  delivery_period: string;
+  verdict: TimingVerdict;
+  priority: TimingPriority;
+  priority_score: number;
+  recommended_now_buy_mwh: number;
+  recommended_now_sell_mwh: number;
+  deferred_buy_mwh: number;
+  deferred_sell_mwh: number;
+  urgency_score: number;
+  liquidity_score: number;
+  exposure_risk_score: number;
+  gate_closure_score: number;
+  confidence_or_significance_component: number;
+  significance_available: boolean;
+  priority_components: PriorityComponents;
+  reasons: string[];
+  warnings: string[];
+  market: TimingMarketView | null;
+  market_snapshot_id: string | null;
+  optimisation_run_id: string | null;
+  policy_version: string;
+  source_mode: SourceMode;
+  quality: Quality;
+  diagnostic_only: boolean;
+  not_executable: boolean;
+}
+
+export interface DecisionBatchSummary {
+  batch_id: string;
+  total_decisions: number;
+  assessed_decisions: number;
+  critical_count: number;
+  high_count: number;
+  medium_count: number;
+  low_count: number;
+  informational_count: number;
+  hedge_now_periods: number;
+  partial_hedge_periods: number;
+  wait_periods: number;
+  no_action_periods: number;
+  top_decision_ids: string[];
+  affected_period_range: string | null;
+}
+
+export interface PrioritisedItem {
+  assessment_id: string;
+  decision_id: string;
+  settlement_period: number;
+  delivery_period: string;
+  verdict: TimingVerdict;
+  priority: TimingPriority;
+  priority_score: number;
+}
+
+export interface AssessTimingResult {
+  assessed_at: string;
+  policy_version: string;
+  created_assessment_ids: string[];
+  existing_assessment_ids: string[];
+  prioritised: PrioritisedItem[];
+  batch_summaries: DecisionBatchSummary[];
+  skipped_decision_ids: string[];
+  diagnostic_only: boolean;
+  trustworthy_for_live_trading: boolean;
+}
+
+export interface DecisionSkip {
+  settlement_period: number | null;
+  delivery_period: string | null;
+  stage: string;
+  code: string;
+  message: string;
+}
+
+export interface DecisionRefreshResult {
+  as_of: string;
+  run_mode: RunMode;
+  forecast_run_id: string;
+  created_decision_ids: string[];
+  batch_id: string | null;
+  duplicate_decision_ids: string[];
+  skipped: DecisionSkip[];
+  diagnostic_only: boolean;
+  trustworthy_for_live_trading: boolean;
+}
+
+export interface DecisionRefreshResponse {
+  refresh: DecisionRefreshResult;
+  created: TradeDecision[];
+  existing: TradeDecision[];
+  batch: DecisionBatch | null;
+  diagnostic_only: boolean;
+  trustworthy_for_live_trading: boolean;
+}
+
+export interface AssessTimingResponse {
+  assessment: AssessTimingResult;
+  diagnostic_only: boolean;
+  trustworthy_for_live_trading: boolean;
+}

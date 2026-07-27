@@ -1,4 +1,4 @@
-import type { BatteryFlexibilitySnapshot, BatteryPathComparison, BatteryPathPeriodAction, BatteryPathSimulation, CockpitSnapshot, CoordinatorSimulationInput, CoordinatorSnapshot, DataFlowEvent, FeedHealth, ForecastPositionSnapshot, HorizonMode, LineageResponse, LiveStateSnapshot, MarketSnapshot, OptimisationRun, OptionalitySnapshot, SampleRegime } from "./types";
+import type { AssessTimingResponse, BatteryFlexibilitySnapshot, BatteryPathComparison, BatteryPathPeriodAction, BatteryPathSimulation, CockpitSnapshot, CoordinatorSimulationInput, CoordinatorSnapshot, DataFlowEvent, DecisionBatch, DecisionBatchSummary, DecisionRefreshResponse, FeedHealth, ForecastPositionSnapshot, ForecastRevision, HedgeTimingAssessment, HorizonMode, LineageResponse, LiveStateSnapshot, MarketSnapshot, OptimisationRun, OptionalitySnapshot, SampleRegime, TradeDecision } from "./types";
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL ?? "http://127.0.0.1:8000/api/v1";
 
@@ -125,4 +125,52 @@ export async function runRollingOptimisation(): Promise<{ optimisation: Optimisa
 export async function loadOptimisationRuns(): Promise<OptimisationRun[]> {
   const response = await request<{ runs: OptimisationRun[] }>("/optimisation/runs");
   return response.runs;
+}
+
+// ---------------------------------------------------------------------------
+// Trader decision queue (Milestone 5) — all decision/revision/timing logic
+// stays on the backend; the client only reads, joins by id, filters and sorts.
+// ---------------------------------------------------------------------------
+
+export async function loadDecisions(): Promise<TradeDecision[]> {
+  const response = await request<{ decisions: TradeDecision[] }>("/decisions");
+  return response.decisions;
+}
+
+export async function loadDecision(decisionId: string): Promise<TradeDecision> {
+  const response = await request<{ decision: TradeDecision }>(`/decisions/${decisionId}`);
+  return response.decision;
+}
+
+export async function loadDecisionBatches(): Promise<DecisionBatch[]> {
+  const response = await request<{ batches: DecisionBatch[] }>("/decision-batches");
+  return response.batches;
+}
+
+export async function loadForecastRevisions(): Promise<ForecastRevision[]> {
+  const response = await request<{ revisions: ForecastRevision[] }>("/forecast-revisions");
+  return response.revisions;
+}
+
+export async function loadForecastRevision(revisionId: string): Promise<ForecastRevision> {
+  const response = await request<{ revision: ForecastRevision }>(`/forecast-revisions/${revisionId}`);
+  return response.revision;
+}
+
+export async function loadHedgeTimingAssessments(): Promise<HedgeTimingAssessment[]> {
+  const response = await request<{ assessments: HedgeTimingAssessment[] }>("/hedge-timing-assessments");
+  return response.assessments;
+}
+
+export async function loadDecisionBatchSummaries(): Promise<DecisionBatchSummary[]> {
+  const response = await request<{ summaries: DecisionBatchSummary[] }>("/decision-batch-summaries");
+  return response.summaries;
+}
+
+export async function refreshDecisions(): Promise<DecisionRefreshResponse> {
+  return request<DecisionRefreshResponse>("/decisions/refresh", { method: "POST", body: "{}" });
+}
+
+export async function reassessTiming(): Promise<AssessTimingResponse> {
+  return request<AssessTimingResponse>("/decisions/assess-timing", { method: "POST", body: "{}" });
 }

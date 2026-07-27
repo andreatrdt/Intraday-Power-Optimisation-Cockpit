@@ -514,3 +514,98 @@ body.chart-fullscreen-open { overflow: hidden; }body.chart-fullscreen-open .opti
 .reference-line text { fill: #37586f !important; font-size: 8px !important; letter-spacing: .04em; }
 .reference-line.warning text { fill: #8a5a12 !important; }
 .time-series-hit { fill: transparent; stroke: none; cursor: crosshair; }
+
+/* ---------------------------------------------------------------------------
+   Trader Decision Queue (Milestone 5)
+   Decision-first layout: primary decision left, supporting evidence in a drawer.
+   Colour reinforces priority/verdict meaning only; typography/spacing carry the
+   hierarchy.
+--------------------------------------------------------------------------- */
+.decisions-page main { display: flex; flex-direction: column; gap: 14px; }
+.decision-header { display: grid; grid-template-columns: 1.6fr auto; grid-template-areas: "meta badges" "actions actions"; gap: 10px 18px; align-items: center; }
+.decision-header-meta { grid-area: meta; display: flex; flex-wrap: wrap; gap: 22px; }
+.decision-header-meta > div { display: flex; flex-direction: column; gap: 2px; }
+.decision-header-meta span { color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: .06em; }
+.decision-header-meta strong { font-size: 14px; }
+.decision-header-badges { grid-area: badges; display: flex; gap: 6px; flex-wrap: wrap; }
+.pill { font-size: 10.5px; font-weight: 600; letter-spacing: .05em; padding: 3px 8px; border-radius: 999px; border: 1px solid var(--border); }
+.pill-sample { color: var(--cyan); border-color: #bcd7ea; background: #eef6fc; }
+.pill-diagnostic { color: var(--violet); border-color: #d5cee6; background: #f2effa; }
+.pill-nonexec { color: var(--red); border-color: #e6c6c6; background: #fbeeee; }
+.pill-degraded { color: var(--amber); border-color: #e6d4b0; background: #fbf3e2; }
+.decision-actions { grid-area: actions; display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.decision-actions .control-note { color: var(--muted); font-size: 12px; }
+.decision-notice { grid-column: 1 / -1; margin: 0; color: var(--green); font-size: 12.5px; }
+
+.decision-summary-strip { display: flex; flex-wrap: wrap; gap: 6px 26px; }
+.decision-summary-strip > div { display: flex; flex-direction: column; }
+.decision-summary-strip span { color: var(--muted); font-size: 10.5px; text-transform: uppercase; letter-spacing: .06em; }
+.decision-summary-strip strong { font-size: 20px; font-variant-numeric: tabular-nums; }
+.decision-summary-strip .crit strong { color: var(--red); }
+.decision-summary-strip .high strong { color: var(--amber); }
+
+.decision-filters { display: flex; flex-wrap: wrap; gap: 10px 14px; align-items: end; }
+.decision-filters label { display: flex; flex-direction: column; gap: 3px; font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: .05em; }
+.decision-filters select, .decision-filters input { padding: 5px 8px; border: 1px solid var(--border); border-radius: 6px; background: var(--panel); font-size: 12.5px; min-width: 92px; }
+.decision-filters input[type="number"] { width: 74px; }
+button.ghost { background: transparent; border: 1px solid var(--border); border-radius: 6px; padding: 6px 12px; cursor: pointer; font-size: 12.5px; }
+
+.decision-queue { display: flex; flex-direction: column; gap: 8px; }
+.decision-card { display: grid; grid-template-columns: 1.15fr 0.85fr 1.1fr 0.9fr 1.6fr; gap: 12px; align-items: center; background: var(--panel); border: 1px solid var(--border); border-left: 4px solid var(--border); border-radius: 8px; padding: 12px 14px; cursor: pointer; transition: box-shadow .12s ease; }
+.decision-card:hover, .decision-card:focus-visible { box-shadow: 0 2px 10px rgba(23,35,51,.08); outline: none; }
+.decision-card.priority-critical { border-left-color: var(--red); }
+.decision-card.priority-high { border-left-color: var(--amber); }
+.decision-card.priority-medium { border-left-color: var(--cyan); }
+.decision-card.priority-low { border-left-color: #9fb0bf; }
+.decision-card.priority-informational { border-left-color: var(--border); }
+.dc-primary { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.dc-sp { font-weight: 700; font-size: 14px; }
+.dc-gate { color: var(--muted); font-size: 11.5px; }
+.priority-tag, .verdict-tag { font-size: 10.5px; font-weight: 700; letter-spacing: .04em; padding: 2px 7px; border-radius: 4px; }
+.priority-tag.priority-critical { background: #fbe7e7; color: var(--red); }
+.priority-tag.priority-high { background: #fbf1dd; color: var(--amber); }
+.priority-tag.priority-medium { background: #e7f1f9; color: var(--cyan); }
+.priority-tag.priority-low, .priority-tag.priority-informational { background: var(--panel-2); color: var(--muted); }
+.verdict-tag.verdict-hedge_now { background: #e4f2ea; color: var(--green); }
+.verdict-tag.verdict-partial_hedge_now { background: #fbf1dd; color: var(--amber); }
+.verdict-tag.verdict-wait { background: #e7f1f9; color: var(--cyan); }
+.verdict-tag.verdict-no_action { background: var(--panel-2); color: var(--muted); }
+.dc-action { display: flex; flex-direction: column; gap: 1px; }
+.dc-action .dir { font-size: 15px; font-weight: 700; }
+.dir-buy { color: var(--green); } .dir-sell { color: var(--red); } .dir-no-action { color: var(--muted); }
+.dc-action small, .dc-exposure small, .dc-liquidity small { color: var(--muted); font-size: 11px; }
+.dc-exposure { display: flex; flex-direction: column; gap: 1px; font-size: 12.5px; }
+.dc-liquidity { display: flex; flex-direction: column; gap: 1px; }
+.dc-reason p { margin: 0 0 5px; font-size: 12.5px; }
+.dc-badges { display: flex; flex-wrap: wrap; gap: 5px; align-items: center; }
+.warn-count { color: var(--amber); font-size: 11px; font-weight: 600; }
+.dc-window { color: var(--muted); font-size: 11px; }
+.evidence-missing { color: var(--amber); font-size: 12px; font-style: italic; }
+
+.batch-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 12px; }
+.batch-card header { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; }
+.batch-counts { display: flex; flex-wrap: wrap; gap: 4px 12px; margin: 8px 0; font-size: 12px; color: var(--muted); }
+.batch-counts .crit { color: var(--red); } .batch-counts .high { color: var(--amber); }
+.batch-top { font-size: 11px; color: var(--muted); margin-bottom: 8px; }
+.batch-top > div { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 3px; }
+.link-id { background: none; border: none; color: var(--blue); cursor: pointer; font-size: 12px; padding: 0; text-decoration: underline; }
+.batch-all-periods { list-style: none; padding: 0; margin: 10px 0 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: 4px; }
+.batch-all-periods li { display: flex; align-items: center; gap: 6px; font-size: 11.5px; }
+.priority-tag { white-space: nowrap; }
+
+.decision-drawer { max-width: 560px; }
+.decision-drawer .drawer-section h4 { margin: 0 0 8px; font-size: 12px; letter-spacing: .05em; text-transform: uppercase; color: var(--muted); }
+.decision-drawer .sign-note { font-size: 11.5px; color: var(--muted); margin: 0 0 8px; }
+.decision-drawer .reason-line { font-size: 12.5px; margin: 4px 0; }
+.decision-drawer .warn-line { font-size: 12px; color: var(--amber); margin: 3px 0; }
+.drawer-verdict { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; font-size: 12px; color: var(--muted); }
+.lifecycle-status { font-size: 13px; } .readonly-note { color: var(--muted); font-size: 11px; }
+.transition-list { list-style: none; padding: 0; margin: 6px 0 0; display: flex; flex-direction: column; gap: 8px; }
+.transition-list li { border-left: 2px solid var(--border); padding-left: 10px; }
+.transition-list li span { font-weight: 600; font-size: 12.5px; } .transition-list li small { display: block; color: var(--muted); font-size: 11px; }
+.transition-list li p { margin: 2px 0 0; font-size: 12px; }
+
+@media (max-width: 900px) {
+  .decision-card { grid-template-columns: 1fr 1fr; }
+  .decision-header { grid-template-columns: 1fr; grid-template-areas: "meta" "badges" "actions"; }
+}

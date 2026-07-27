@@ -188,6 +188,7 @@ class HedgeTimingAssessment(_Frozen):
     reasons: tuple[str, ...]
     warnings: tuple[str, ...]
 
+    market: TimingMarketView | None = None
     market_snapshot_id: str | None
     optimisation_run_id: str | None
     policy_version: str

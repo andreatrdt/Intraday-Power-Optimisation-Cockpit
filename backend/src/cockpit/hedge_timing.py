@@ -300,6 +300,7 @@ def assess_timing(
         priority_components=components,
         reasons=tuple(reasons),
         warnings=tuple(warnings),
+        market=market,
         market_snapshot_id=market.market_snapshot_id,
         optimisation_run_id=market.optimisation_run_id,
         policy_version=config.policy_version or POLICY_VERSION,
