@@ -212,6 +212,7 @@ class DecisionContext(_Frozen):
     market_snapshot_id: str | None = None
     optimisation_run_id: str | None = None
     minutes_to_gate_closure: float | None = None
+    gate_closure_at: datetime | None = None
 
     # Exposure before action (this period) ----------------------------------
     # The *_exposure_before_mwh fields are the LATEST (post-revision, pre-hedge)
@@ -329,6 +330,7 @@ class DecisionTransition(_Frozen):
     occurred_at: datetime
     actor: DecisionActor
     reason: str
+    actor_id: str | None = None
 
 
 # ---------------------------------------------------------------------------

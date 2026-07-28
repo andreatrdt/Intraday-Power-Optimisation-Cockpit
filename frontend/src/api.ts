@@ -1,6 +1,19 @@
-import type { AssessTimingResponse, BatteryFlexibilitySnapshot, BatteryPathComparison, BatteryPathPeriodAction, BatteryPathSimulation, CockpitSnapshot, CoordinatorSimulationInput, CoordinatorSnapshot, DataFlowEvent, DecisionBatch, DecisionBatchSummary, DecisionRefreshResponse, FeedHealth, ForecastPositionSnapshot, ForecastRevision, HedgeTimingAssessment, HorizonMode, LineageResponse, LiveStateSnapshot, MarketSnapshot, OptimisationRun, OptionalitySnapshot, SampleRegime, TradeDecision } from "./types";
+import type { AcceptDecisionRequest, AssessTimingResponse, BatteryFlexibilitySnapshot, BatteryPathComparison, BatteryPathPeriodAction, BatteryPathSimulation, CockpitSnapshot, CoordinatorSimulationInput, CoordinatorSnapshot, DataFlowEvent, DecisionBatch, DecisionBatchSummary, DecisionMutationResponse, DecisionRefreshResponse, DelayDecisionRequest, FeedHealth, ForecastPositionSnapshot, ForecastRevision, HedgeTimingAssessment, HorizonMode, LineageResponse, LiveStateSnapshot, MarketSnapshot, ModifyDecisionRequest, OptimisationRun, OptionalitySnapshot, RejectDecisionRequest, ReopenDecisionRequest, SampleRegime, TradeDecision } from "./types";
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL ?? "http://127.0.0.1:8000/api/v1";
+
+/** Error carrying the HTTP status and parsed body, so callers can handle 409
+ * (stale-decision conflict) and 422 (validation) distinctly. */
+export class ApiError extends Error {
+  readonly status: number;
+  readonly body: unknown;
+  constructor(status: number, statusText: string, body: unknown, message: string) {
+    super(message);
+    this.name = "ApiError";
+    this.status = status;
+    this.body = body;
+  }
+}
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(`${API_BASE}${path}`, {
@@ -8,8 +21,10 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     headers: { "Content-Type": "application/json", ...(init?.headers ?? {}) },
   });
   if (!response.ok) {
-    const detail = await response.text();
-    throw new Error(`${response.status} ${response.statusText}: ${detail}`);
+    const text = await response.text();
+    let body: unknown = text;
+    try { body = JSON.parse(text); } catch { /* keep raw text */ }
+    throw new ApiError(response.status, response.statusText, body, `${response.status} ${response.statusText}: ${text}`);
   }
   return response.json() as Promise<T>;
 }
@@ -173,4 +188,31 @@ export async function refreshDecisions(): Promise<DecisionRefreshResponse> {
 
 export async function reassessTiming(): Promise<AssessTimingResponse> {
   return request<AssessTimingResponse>("/decisions/assess-timing", { method: "POST", body: "{}" });
+}
+
+// -- trader lifecycle mutations (record trader decisions; never submit orders) --
+
+async function mutateDecision(path: string, body: unknown): Promise<TradeDecision> {
+  const response = await request<DecisionMutationResponse>(path, { method: "POST", body: JSON.stringify(body) });
+  return response.decision;
+}
+
+export function acceptDecision(decisionId: string, body: AcceptDecisionRequest): Promise<TradeDecision> {
+  return mutateDecision(`/decisions/${decisionId}/accept`, body);
+}
+
+export function modifyDecision(decisionId: string, body: ModifyDecisionRequest): Promise<TradeDecision> {
+  return mutateDecision(`/decisions/${decisionId}/modify`, body);
+}
+
+export function rejectDecision(decisionId: string, body: RejectDecisionRequest): Promise<TradeDecision> {
+  return mutateDecision(`/decisions/${decisionId}/reject`, body);
+}
+
+export function delayDecision(decisionId: string, body: DelayDecisionRequest): Promise<TradeDecision> {
+  return mutateDecision(`/decisions/${decisionId}/delay`, body);
+}
+
+export function reopenDecision(decisionId: string, body: ReopenDecisionRequest): Promise<TradeDecision> {
+  return mutateDecision(`/decisions/${decisionId}/reopen`, body);
 }

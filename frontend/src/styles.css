@@ -609,3 +609,44 @@ button.ghost { background: transparent; border: 1px solid var(--border); border-
   .decision-card { grid-template-columns: 1fr 1fr; }
   .decision-header { grid-template-columns: 1fr; grid-template-areas: "meta" "badges" "actions"; }
 }
+
+/* Trader lifecycle controls (Milestone 6A) */
+.status-tag { font-size: 10px; font-weight: 700; letter-spacing: .04em; padding: 2px 6px; border-radius: 4px; border: 1px solid var(--border); color: var(--muted); }
+.status-tag.status-proposed { color: var(--cyan); border-color: #bcd7ea; }
+.status-tag.status-accepted { color: var(--green); border-color: #b8ddc7; }
+.status-tag.status-modified { color: var(--amber); border-color: #e6d4b0; }
+.status-tag.status-rejected { color: var(--red); border-color: #e6c6c6; }
+.status-tag.status-delayed { color: var(--violet); border-color: #d5cee6; }
+
+.lifecycle-controls { border: 1px solid var(--border); border-radius: 8px; padding: 12px 14px; margin-bottom: 14px; background: var(--panel-2); }
+.lifecycle-controls h4 { margin: 0 0 8px; font-size: 12px; letter-spacing: .05em; text-transform: uppercase; color: var(--muted); }
+.lifecycle-controls.readonly p { font-size: 12.5px; color: var(--muted); margin: 0; }
+.lifecycle-buttons { display: flex; flex-wrap: wrap; gap: 8px; }
+.lifecycle-buttons button { padding: 7px 14px; border: 1px solid var(--border); border-radius: 6px; background: var(--panel); cursor: pointer; font-size: 13px; font-weight: 600; }
+.lifecycle-buttons button:hover { border-color: var(--cyan); }
+.lifecycle-form { display: flex; flex-direction: column; gap: 10px; margin-top: 4px; }
+.lifecycle-form p { margin: 0; font-size: 12.5px; }
+.lifecycle-form label { display: flex; flex-direction: column; gap: 3px; font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: .05em; }
+.lifecycle-form textarea { min-height: 54px; border: 1px solid var(--border); border-radius: 6px; padding: 7px; font: inherit; font-size: 13px; resize: vertical; }
+.lifecycle-form input { border: 1px solid var(--border); border-radius: 6px; padding: 6px 8px; font: inherit; font-size: 13px; }
+.modify-fields { display: flex; gap: 10px; flex-wrap: wrap; }
+.modify-fields label { flex: 1; min-width: 90px; }
+.modify-compare { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; font-size: 12px; }
+.modify-compare > div { border: 1px solid var(--border); border-radius: 6px; padding: 6px 8px; }
+.modify-compare > div span { display: block; color: var(--muted); font-size: 10.5px; text-transform: uppercase; letter-spacing: .05em; }
+.modify-compare > div.changed { border-color: var(--amber); background: #fbf7ee; }
+.delay-context { display: flex; flex-wrap: wrap; gap: 4px 20px; margin: 0; }
+.delay-context div { display: flex; flex-direction: column; }
+.delay-context dt { color: var(--muted); font-size: 10.5px; text-transform: uppercase; letter-spacing: .05em; }
+.delay-context dd { margin: 0; font-size: 12.5px; }
+.no-order-note { color: var(--violet); font-weight: 600; font-size: 12px !important; }
+.field-error { color: var(--red); font-size: 12px !important; }
+.form-actions { display: flex; gap: 8px; }
+.form-actions button[type="submit"] { background: var(--cyan); color: #fff; border: none; border-radius: 6px; padding: 8px 16px; font-weight: 600; cursor: pointer; }
+.form-actions button[type="submit"]:disabled { background: #a9bccb; cursor: not-allowed; }
+.form-actions button[type="button"] { background: transparent; border: 1px solid var(--border); border-radius: 6px; padding: 8px 14px; cursor: pointer; }
+.lifecycle-conflict { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; background: #fbeeee; border: 1px solid #e6c6c6; border-radius: 6px; padding: 8px 10px; margin-bottom: 8px; font-size: 12.5px; }
+.lifecycle-conflict strong { color: var(--red); }
+.lifecycle-conflict button { margin-left: auto; border: 1px solid var(--red); background: #fff; color: var(--red); border-radius: 5px; padding: 4px 10px; cursor: pointer; }
+.lifecycle-error { background: #fbeeee; border: 1px solid #e6c6c6; border-radius: 6px; padding: 8px 10px; margin-bottom: 8px; font-size: 12.5px; color: var(--red); }
+.lifecycle-success { background: #e9f4ee; border: 1px solid #b8ddc7; border-radius: 6px; padding: 8px 10px; margin-bottom: 8px; font-size: 12.5px; color: var(--green); }

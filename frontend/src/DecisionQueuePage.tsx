@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Badge } from "./App";
 import { ConnectionStatus } from "./ConnectionStatus";
+import { DecisionLifecycleControls } from "./DecisionLifecycleControls";
 import { ProductNav } from "./ProductNav";
 import { formatTimestampWithZone } from "./time";
 import {
@@ -49,13 +50,15 @@ interface Filters {
   priority: string;
   verdict: string;
   action: string;
+  status: string;
   quality: string;
   batch: string;
   spFrom: string;
   spTo: string;
 }
 
-const EMPTY_FILTERS: Filters = { priority: "ALL", verdict: "ALL", action: "ALL", quality: "ALL", batch: "ALL", spFrom: "", spTo: "" };
+const EMPTY_FILTERS: Filters = { priority: "ALL", verdict: "ALL", action: "ALL", status: "ALL", quality: "ALL", batch: "ALL", spFrom: "", spTo: "" };
+const DECISION_STATUSES = ["PROPOSED", "ACCEPTED", "MODIFIED", "REJECTED", "DELAYED", "ACTIVE_ONLY"];
 
 export function DecisionQueuePage() {
   const [data, setData] = useState<QueueData | null>(null);
@@ -125,6 +128,8 @@ export function DecisionQueuePage() {
     if (filters.priority !== "ALL" && assessment?.priority !== filters.priority) return false;
     if (filters.verdict !== "ALL" && assessment?.verdict !== filters.verdict) return false;
     if (filters.action !== "ALL" && decision.recommendation.action !== filters.action) return false;
+    if (filters.status === "ACTIVE_ONLY" && decision.status === "REJECTED") return false;
+    else if (filters.status !== "ALL" && filters.status !== "ACTIVE_ONLY" && decision.status !== filters.status) return false;
     if (filters.quality !== "ALL" && decision.context.quality !== filters.quality) return false;
     if (filters.batch !== "ALL" && decision.batch_id !== filters.batch) return false;
     const sp = decision.context.settlement_period;
@@ -214,6 +219,7 @@ export function DecisionQueuePage() {
         <label><span>Priority</span><select value={filters.priority} onChange={(e) => setFilters({ ...filters, priority: e.target.value })}>{["ALL", "CRITICAL", "HIGH", "MEDIUM", "LOW", "INFORMATIONAL"].map((v) => <option key={v}>{v}</option>)}</select></label>
         <label><span>Verdict</span><select value={filters.verdict} onChange={(e) => setFilters({ ...filters, verdict: e.target.value })}>{["ALL", "HEDGE_NOW", "PARTIAL_HEDGE_NOW", "WAIT", "NO_ACTION"].map((v) => <option key={v}>{v}</option>)}</select></label>
         <label><span>Action</span><select value={filters.action} onChange={(e) => setFilters({ ...filters, action: e.target.value })}>{["ALL", "BUY", "SELL", "NO_ACTION"].map((v) => <option key={v}>{v}</option>)}</select></label>
+        <label><span>Status</span><select value={filters.status} onChange={(e) => setFilters({ ...filters, status: e.target.value })}>{["ALL", ...DECISION_STATUSES].map((v) => <option key={v}>{v}</option>)}</select></label>
         <label><span>Quality</span><select value={filters.quality} onChange={(e) => setFilters({ ...filters, quality: e.target.value })}>{["ALL", "FRESH", "REVISED", "PARTIAL", "STALE", "MISSING", "INVALID"].map((v) => <option key={v}>{v}</option>)}</select></label>
         <label><span>Batch</span><select value={filters.batch} onChange={(e) => setFilters({ ...filters, batch: e.target.value })}><option>ALL</option>{data?.batches.map((b) => <option key={b.batch_id} value={b.batch_id}>{b.batch_id}</option>)}</select></label>
         <label><span>SP from</span><input type="number" value={filters.spFrom} onChange={(e) => setFilters({ ...filters, spFrom: e.target.value })} /></label>
@@ -274,6 +280,7 @@ export function DecisionQueuePage() {
       revision={selectedDecision.context.forecast_revision_id ? data?.revisions.get(selectedDecision.context.forecast_revision_id) : undefined}
       onClose={() => setSelected(null)}
       onReassess={() => void onReassess()}
+      onReload={loadAll}
     />}
   </div>;
 }
@@ -291,6 +298,7 @@ function DecisionCard({ decision, assessment, revision, onOpen }: { decision: Tr
     <div className="dc-primary">
       <span className={`priority-tag priority-${assessment.priority.toLowerCase()}`}>{assessment.priority}</span>
       <span className={`verdict-tag verdict-${assessment.verdict.toLowerCase()}`}>{VERDICT_LABEL[assessment.verdict]}</span>
+      <span className={`status-tag status-${decision.status.toLowerCase()}`}>{decision.status}</span>
       <span className="dc-sp">SP{ctx.settlement_period}</span>
       <span className="dc-gate">{ctx.minutes_to_gate_closure === null ? "gate —" : `${n(ctx.minutes_to_gate_closure, 0)} min to gate`}</span>
     </div>
@@ -321,7 +329,7 @@ function DecisionCard({ decision, assessment, revision, onOpen }: { decision: Tr
   </article>;
 }
 
-function DecisionDrawer({ decision, assessment, revision, onClose, onReassess }: { decision: TradeDecision; assessment: HedgeTimingAssessment | undefined; revision: ForecastRevision | undefined; onClose: () => void; onReassess: () => void }) {
+function DecisionDrawer({ decision, assessment, revision, onClose, onReassess, onReload }: { decision: TradeDecision; assessment: HedgeTimingAssessment | undefined; revision: ForecastRevision | undefined; onClose: () => void; onReassess: () => void; onReload: () => Promise<void> | void }) {
   const ctx = decision.context;
   const comp = revision?.comparison;
   const port = revision?.portfolio;
@@ -332,6 +340,8 @@ function DecisionDrawer({ decision, assessment, revision, onClose, onReassess }:
         <div><p className="eyebrow">DECISION · SP{ctx.settlement_period}</p><h3>{ctx.delivery_period}</h3><p>{ctx.trigger_description}</p></div>
         <button onClick={onClose} aria-label="Close decision drawer">×</button>
       </div>
+
+      <DecisionLifecycleControls decision={decision} revision={revision} assessment={assessment} onReload={onReload} />
 
       <section className="drawer-section">
         <h4>What changed</h4>

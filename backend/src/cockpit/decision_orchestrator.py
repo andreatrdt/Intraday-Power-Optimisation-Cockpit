@@ -186,6 +186,7 @@ def build_context(
     snap: AdapterSnapshot,
     *,
     minutes_to_gate: float | None,
+    gate_closure_at: datetime | None = None,
 ) -> DecisionContext:
     reason = revision.materiality.materiality_reasons[0] if revision.materiality.materiality_reasons else "material revision"
     description = (
@@ -212,6 +213,7 @@ def build_context(
         market_snapshot_id=snap.market_snapshot_id,
         optimisation_run_id=snap.optimisation_run_id,
         minutes_to_gate_closure=minutes_to_gate,
+        gate_closure_at=gate_closure_at,
         position_before_mwh=revision.portfolio.contracted_position_q_mwh,
         forecast_revision_mwh=revision.comparison.delta_p50_mwh,
         # LATEST (post-revision, pre-hedge) exposures; previous exposures are on
@@ -479,7 +481,7 @@ class DecisionOrchestrator:
                 )
                 continue
 
-            contexts.append(build_context(revision, snapshot, minutes_to_gate=minutes_to_gate))
+            contexts.append(build_context(revision, snapshot, minutes_to_gate=minutes_to_gate, gate_closure_at=gate))
             recommendations.append(build_recommendation(revision, view, action))
 
         created_ids: list[str] = []

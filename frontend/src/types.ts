@@ -1292,6 +1292,7 @@ export interface DecisionContext {
   market_snapshot_id: string | null;
   optimisation_run_id: string | null;
   minutes_to_gate_closure: number | null;
+  gate_closure_at: string | null;
   position_before_mwh: number | null;
   forecast_revision_mwh: number | null;
   p10_exposure_before_mwh: number | null;
@@ -1320,6 +1321,7 @@ export interface DecisionTransition {
   occurred_at: string;
   actor: DecisionActor;
   reason: string;
+  actor_id: string | null;
 }
 
 export interface TraderInstruction {
@@ -1614,4 +1616,49 @@ export interface AssessTimingResponse {
   assessment: AssessTimingResult;
   diagnostic_only: boolean;
   trustworthy_for_live_trading: boolean;
+}
+
+// -- Trader lifecycle mutations (Milestone 6A) --
+
+export interface LifecycleConcurrency {
+  actor_id?: string | null;
+  expected_status?: DecisionStatus | null;
+  expected_sequence?: number | null;
+}
+
+export interface AcceptDecisionRequest extends LifecycleConcurrency {
+  trader_rationale?: string | null;
+}
+
+export interface ModifyDecisionRequest extends LifecycleConcurrency {
+  trader_buy_mwh: number;
+  trader_sell_mwh: number;
+  trader_limit_price?: number | null;
+  trader_rationale: string;
+}
+
+export interface RejectDecisionRequest extends LifecycleConcurrency {
+  trader_rationale: string;
+}
+
+export interface DelayDecisionRequest extends LifecycleConcurrency {
+  delayed_until: string;
+  trader_rationale: string;
+}
+
+export interface ReopenDecisionRequest extends LifecycleConcurrency {
+  trader_rationale?: string | null;
+}
+
+export interface DecisionMutationResponse {
+  decision: TradeDecision;
+  diagnostic_only: boolean;
+  trustworthy_for_live_trading: boolean;
+}
+
+export interface ConflictDetail {
+  error: string;
+  current_status?: DecisionStatus;
+  current_sequence?: number;
+  message: string;
 }

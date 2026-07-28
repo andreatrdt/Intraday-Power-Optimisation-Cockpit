@@ -19,9 +19,17 @@ from cockpit.models import (
     RefreshRequest,
     RegimeRequest,
 )
+from cockpit.decision_lifecycle_models import (
+    AcceptRequest,
+    DelayRequest,
+    ModifyRequest,
+    RejectRequest,
+    ReopenRequest,
+)
 from cockpit.decision_orchestrator import ORCHESTRATOR
 from cockpit.decision_prioritisation import HEDGE_TIMING
-from cockpit.decision_service import DECISIONS
+from cockpit.decision_service import DECISIONS, DecisionValidationError, StaleDecisionError
+from cockpit.decision_state_machine import InvalidTransitionError, StagePayloadError
 from cockpit.hedge_timing_models import AssessTimingRequest
 from cockpit.optionality_layer import build_optionality_snapshot
 from cockpit.pipeline import PIPELINE
@@ -571,6 +579,106 @@ def get_decision_batch_summary(batch_id: str) -> dict:
     if summary is None:
         raise HTTPException(status_code=404, detail=f"Unknown decision batch '{batch_id}'")
     return {"summary": summary}
+
+
+def _mutate_decision(action) -> dict:
+    """Run a lifecycle mutation and map service exceptions to HTTP status codes.
+
+    All transition/validation logic stays in the decision service/state machine;
+    this only translates outcomes. Trader records remain diagnostic-only.
+    """
+    try:
+        decision = action()
+    except KeyError as error:
+        raise HTTPException(status_code=404, detail=str(error))
+    except StaleDecisionError as error:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "error": "stale_decision",
+                "current_status": error.current_status.value,
+                "current_sequence": error.current_sequence,
+                "message": str(error),
+            },
+        )
+    except InvalidTransitionError as error:
+        raise HTTPException(status_code=409, detail={"error": "invalid_transition", "message": str(error)})
+    except (DecisionValidationError, StagePayloadError, ValueError) as error:
+        raise HTTPException(status_code=422, detail={"error": "validation_error", "message": str(error)})
+    return {"decision": decision, "diagnostic_only": True, "trustworthy_for_live_trading": False}
+
+
+@app.post("/api/v1/decisions/{decision_id}/accept", tags=["trader-lifecycle"])
+def accept_decision(decision_id: str, request: AcceptRequest | None = None) -> dict:
+    """Record trader acceptance. This records a decision only; no order is submitted."""
+    payload = request or AcceptRequest()
+    return _mutate_decision(
+        lambda: DECISIONS.accept(
+            decision_id,
+            rationale=payload.trader_rationale,
+            actor_id=payload.actor_id,
+            expected_status=payload.expected_status,
+            expected_sequence=payload.expected_sequence,
+        )
+    )
+
+
+@app.post("/api/v1/decisions/{decision_id}/modify", tags=["trader-lifecycle"])
+def modify_decision(decision_id: str, request: ModifyRequest) -> dict:
+    return _mutate_decision(
+        lambda: DECISIONS.modify(
+            decision_id,
+            buy_mwh=request.trader_buy_mwh,
+            sell_mwh=request.trader_sell_mwh,
+            limit_price=request.trader_limit_price,
+            rationale=request.trader_rationale,
+            actor_id=request.actor_id,
+            expected_status=request.expected_status,
+            expected_sequence=request.expected_sequence,
+        )
+    )
+
+
+@app.post("/api/v1/decisions/{decision_id}/reject", tags=["trader-lifecycle"])
+def reject_decision(decision_id: str, request: RejectRequest) -> dict:
+    return _mutate_decision(
+        lambda: DECISIONS.reject(
+            decision_id,
+            rationale=request.trader_rationale,
+            actor_id=request.actor_id,
+            expected_status=request.expected_status,
+            expected_sequence=request.expected_sequence,
+        )
+    )
+
+
+@app.post("/api/v1/decisions/{decision_id}/delay", tags=["trader-lifecycle"])
+def delay_decision(decision_id: str, request: DelayRequest) -> dict:
+    return _mutate_decision(
+        lambda: DECISIONS.delay(
+            decision_id,
+            until=request.delayed_until,
+            rationale=request.trader_rationale,
+            actor_id=request.actor_id,
+            expected_status=request.expected_status,
+            expected_sequence=request.expected_sequence,
+        )
+    )
+
+
+@app.post("/api/v1/decisions/{decision_id}/reopen", tags=["trader-lifecycle"])
+def reopen_decision(decision_id: str, request: ReopenRequest | None = None) -> dict:
+    """Reopen a DELAYED decision back to PROPOSED. Records a decision only."""
+    payload = request or ReopenRequest()
+    return _mutate_decision(
+        lambda: DECISIONS.reopen(
+            decision_id,
+            rationale=payload.trader_rationale,
+            actor_id=payload.actor_id,
+            expected_status=payload.expected_status,
+            expected_sequence=payload.expected_sequence,
+        )
+    )
 
 
 @app.get("/api/v1/cockpit", tags=["snapshots"])

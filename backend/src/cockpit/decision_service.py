@@ -17,6 +17,7 @@ period and a :class:`~cockpit.decision_models.DecisionBatch` grouping their IDs.
 
 from __future__ import annotations
 
+import math
 from datetime import datetime, timezone
 from threading import RLock
 from uuid import uuid4
@@ -36,6 +37,25 @@ from cockpit.decision_models import (
     TraderInstruction,
 )
 from cockpit.decision_state_machine import _FILL_TOLERANCE_MWH, apply_transition, record_creation
+
+_ACTION_TOLERANCE_MWH = 1e-6
+
+
+class StaleDecisionError(Exception):
+    """Raised when an optimistic-concurrency guard does not match current state.
+
+    Carries the current status/sequence so the caller (API) can return a 409 that
+    lets the client reconcile.
+    """
+
+    def __init__(self, current_status: DecisionStatus, current_sequence: int, message: str) -> None:
+        self.current_status = current_status
+        self.current_sequence = current_sequence
+        super().__init__(message)
+
+
+class DecisionValidationError(ValueError):
+    """Raised for a stateful trader-instruction validation failure."""
 
 
 def _utcnow() -> datetime:
@@ -163,27 +183,56 @@ class DecisionStore:
         actor: DecisionActor,
         reason: str,
         at: datetime | None = None,
+        actor_id: str | None = None,
+        expected_status: DecisionStatus | None = None,
+        expected_sequence: int | None = None,
         updates: dict | None = None,
     ) -> TradeDecision:
         with self._lock:
             current = self._require(decision_id)
-            updated = apply_transition(current, target, actor=actor, reason=reason, at=at, updates=updates)
+            _assert_precondition(current, expected_status, expected_sequence)
+            updated = apply_transition(
+                current, target, actor=actor, reason=reason, at=at, actor_id=actor_id, updates=updates
+            )
             self._store(updated)
             return updated
 
     # -- trader lifecycle ---------------------------------------------------
 
-    def accept(self, decision_id: str, *, rationale: str | None = None, at: datetime | None = None) -> TradeDecision:
+    def accept(
+        self,
+        decision_id: str,
+        *,
+        rationale: str | None = None,
+        actor_id: str | None = None,
+        at: datetime | None = None,
+        expected_status: DecisionStatus | None = None,
+        expected_sequence: int | None = None,
+    ) -> TradeDecision:
+        """Record trader acceptance, preserving the model recommendation as the
+        trader instruction."""
         decided_at = at or _utcnow()
-        instruction = TraderInstruction(action=TraderAction.ACCEPT, decided_at=decided_at, rationale=rationale)
-        return self.transition(
-            decision_id,
-            DecisionStatus.ACCEPTED,
-            actor=DecisionActor.TRADER,
-            reason=rationale or "Trader accepted the recommendation as-is.",
-            at=decided_at,
-            updates={"trader_instruction": instruction},
-        )
+        with self._lock:
+            current = self._require(decision_id)
+            _assert_precondition(current, expected_status, expected_sequence)
+            rec = current.recommendation
+            instruction = TraderInstruction(
+                action=TraderAction.ACCEPT,
+                decided_at=decided_at,
+                buy_mwh=rec.buy_mwh,
+                sell_mwh=rec.sell_mwh,
+                limit_price=rec.limit_price,
+                rationale=rationale,
+            )
+            return self.transition(
+                decision_id,
+                DecisionStatus.ACCEPTED,
+                actor=DecisionActor.TRADER,
+                actor_id=actor_id,
+                reason=rationale or "Trader accepted the recommendation as-is.",
+                at=decided_at,
+                updates={"trader_instruction": instruction},
+            )
 
     def modify(
         self,
@@ -193,35 +242,57 @@ class DecisionStore:
         sell_mwh: float | None = None,
         limit_price: float | None = None,
         rationale: str | None = None,
+        actor_id: str | None = None,
         at: datetime | None = None,
+        expected_status: DecisionStatus | None = None,
+        expected_sequence: int | None = None,
     ) -> TradeDecision:
         decided_at = at or _utcnow()
-        instruction = TraderInstruction(
-            action=TraderAction.MODIFY,
-            decided_at=decided_at,
-            buy_mwh=buy_mwh,
-            sell_mwh=sell_mwh,
-            limit_price=limit_price,
-            rationale=rationale,
-        )
-        return self.transition(
-            decision_id,
-            DecisionStatus.MODIFIED,
-            actor=DecisionActor.TRADER,
-            reason=rationale or "Trader modified the recommended volume/price.",
-            at=decided_at,
-            updates={"trader_instruction": instruction},
-        )
+        with self._lock:
+            current = self._require(decision_id)
+            _assert_precondition(current, expected_status, expected_sequence)
+            buy = buy_mwh or 0.0
+            sell = sell_mwh or 0.0
+            _validate_modify(current.recommendation, buy, sell, limit_price)
+            instruction = TraderInstruction(
+                action=TraderAction.MODIFY,
+                decided_at=decided_at,
+                buy_mwh=round(buy, 6),
+                sell_mwh=round(sell, 6),
+                limit_price=limit_price,
+                rationale=rationale,
+            )
+            return self.transition(
+                decision_id,
+                DecisionStatus.MODIFIED,
+                actor=DecisionActor.TRADER,
+                actor_id=actor_id,
+                reason=rationale or "Trader modified the recommended volume/price.",
+                at=decided_at,
+                updates={"trader_instruction": instruction},
+            )
 
-    def reject(self, decision_id: str, *, rationale: str | None = None, at: datetime | None = None) -> TradeDecision:
+    def reject(
+        self,
+        decision_id: str,
+        *,
+        rationale: str | None = None,
+        actor_id: str | None = None,
+        at: datetime | None = None,
+        expected_status: DecisionStatus | None = None,
+        expected_sequence: int | None = None,
+    ) -> TradeDecision:
         decided_at = at or _utcnow()
         instruction = TraderInstruction(action=TraderAction.REJECT, decided_at=decided_at, rationale=rationale)
         return self.transition(
             decision_id,
             DecisionStatus.REJECTED,
             actor=DecisionActor.TRADER,
+            actor_id=actor_id,
             reason=rationale or "Trader rejected the recommendation.",
             at=decided_at,
+            expected_status=expected_status,
+            expected_sequence=expected_sequence,
             updates={"trader_instruction": instruction},
         )
 
@@ -231,26 +302,58 @@ class DecisionStore:
         *,
         until: datetime | None = None,
         rationale: str | None = None,
+        actor_id: str | None = None,
         at: datetime | None = None,
+        expected_status: DecisionStatus | None = None,
+        expected_sequence: int | None = None,
     ) -> TradeDecision:
         decided_at = at or _utcnow()
-        instruction = TraderInstruction(
-            action=TraderAction.DELAY,
-            decided_at=decided_at,
-            delayed_until=until,
-            rationale=rationale,
-        )
+        with self._lock:
+            current = self._require(decision_id)
+            _assert_precondition(current, expected_status, expected_sequence)
+            _validate_delay(current, until, decided_at)
+            instruction = TraderInstruction(
+                action=TraderAction.DELAY,
+                decided_at=decided_at,
+                delayed_until=until,
+                rationale=rationale,
+            )
+            return self.transition(
+                decision_id,
+                DecisionStatus.DELAYED,
+                actor=DecisionActor.TRADER,
+                actor_id=actor_id,
+                reason=rationale or "Trader delayed the decision to a later gate.",
+                at=decided_at,
+                updates={"trader_instruction": instruction},
+            )
+
+    def reopen(
+        self,
+        decision_id: str,
+        *,
+        rationale: str | None = None,
+        actor_id: str | None = None,
+        at: datetime | None = None,
+        expected_status: DecisionStatus | None = None,
+        expected_sequence: int | None = None,
+    ) -> TradeDecision:
+        """Reopen a DELAYED decision to ``PROPOSED`` (trader-initiated), clearing
+        the instruction. The state machine permits this only from DELAYED."""
         return self.transition(
             decision_id,
-            DecisionStatus.DELAYED,
+            DecisionStatus.PROPOSED,
             actor=DecisionActor.TRADER,
-            reason=rationale or "Trader delayed the decision to a later gate.",
-            at=decided_at,
-            updates={"trader_instruction": instruction},
+            actor_id=actor_id,
+            reason=rationale or "Trader reopened the delayed decision.",
+            at=at,
+            expected_status=expected_status,
+            expected_sequence=expected_sequence,
+            updates={"trader_instruction": None},
         )
 
     def re_propose(self, decision_id: str, *, reason: str | None = None, at: datetime | None = None) -> TradeDecision:
-        """Return a delayed decision to ``PROPOSED``, clearing the instruction."""
+        """Return a delayed decision to ``PROPOSED``, clearing the instruction (system-initiated)."""
         return self.transition(
             decision_id,
             DecisionStatus.PROPOSED,
@@ -489,6 +592,58 @@ class DecisionStore:
             self._decisions.clear()
             self._order.clear()
             self._batches.clear()
+
+
+def _current_sequence(decision: TradeDecision) -> int:
+    return decision.transitions[-1].sequence if decision.transitions else 0
+
+
+def _assert_precondition(
+    current: TradeDecision,
+    expected_status: DecisionStatus | None,
+    expected_sequence: int | None,
+) -> None:
+    """Optimistic-concurrency guard: raise StaleDecisionError on a mismatch."""
+    last_seq = _current_sequence(current)
+    if expected_status is not None and current.status is not expected_status:
+        raise StaleDecisionError(
+            current.status, last_seq, f"Decision is {current.status.value}, expected {expected_status.value}."
+        )
+    if expected_sequence is not None and last_seq != expected_sequence:
+        raise StaleDecisionError(
+            current.status, last_seq, f"Decision is at sequence {last_seq}, expected {expected_sequence}."
+        )
+
+
+def _validate_modify(recommendation: ModelRecommendation, buy: float, sell: float, limit_price: float | None) -> None:
+    if buy < 0 or sell < 0:
+        raise DecisionValidationError("Trader volumes must be non-negative.")
+    if buy > _ACTION_TOLERANCE_MWH and sell > _ACTION_TOLERANCE_MWH:
+        raise DecisionValidationError("Buy and sell cannot both be positive; the market hedge is one-sided.")
+    if limit_price is not None and not math.isfinite(limit_price):
+        raise DecisionValidationError("Limit price must be finite when supplied.")
+    unchanged = (
+        abs(buy - recommendation.buy_mwh) <= _ACTION_TOLERANCE_MWH
+        and abs(sell - recommendation.sell_mwh) <= _ACTION_TOLERANCE_MWH
+        and (limit_price is None or limit_price == recommendation.limit_price)
+    )
+    if unchanged:
+        raise DecisionValidationError("A modification must differ from the model recommendation.")
+
+
+def _validate_delay(current: TradeDecision, until: datetime | None, now: datetime) -> None:
+    if until is None:
+        raise DecisionValidationError("delayed_until is required.")
+    if until.tzinfo is None:
+        raise DecisionValidationError("delayed_until must be timezone-aware.")
+    if until <= now:
+        raise DecisionValidationError("delayed_until must be later than the current time.")
+    gate = current.context.gate_closure_at
+    if gate is not None:
+        if now >= gate:
+            raise DecisionValidationError("Gate Closure has already passed; the decision cannot be delayed.")
+        if until >= gate:
+            raise DecisionValidationError("delayed_until must be before Gate Closure.")
 
 
 def _effective_requested_mwh(decision: TradeDecision) -> float:

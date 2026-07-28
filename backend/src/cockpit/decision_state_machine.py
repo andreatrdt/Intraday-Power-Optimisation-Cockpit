@@ -179,6 +179,7 @@ def apply_transition(
     actor: DecisionActor,
     reason: str,
     at: datetime | None = None,
+    actor_id: str | None = None,
     updates: dict[str, Any] | None = None,
 ) -> TradeDecision:
     """Validate and apply a lifecycle transition, returning a **new** decision.
@@ -203,6 +204,7 @@ def apply_transition(
         occurred_at=occurred_at,
         actor=actor,
         reason=reason,
+        actor_id=actor_id,
     )
 
     merged: dict[str, Any] = dict(updates or {})
