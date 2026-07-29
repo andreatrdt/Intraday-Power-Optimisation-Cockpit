@@ -32,7 +32,14 @@ from cockpit.decision_service import DECISIONS, DecisionValidationError, StaleDe
 from cockpit.decision_state_machine import InvalidTransitionError, StagePayloadError
 from cockpit.execution_models import SubmitSimulatedRequest
 from cockpit.execution_service import EXECUTION, IdempotencyConflictError
+from cockpit.evaluation_service import EVALUATION
 from cockpit.hedge_timing_models import AssessTimingRequest
+from cockpit.settlement_models import LifecycleActionRequest
+from cockpit.settlement_service import (
+    SETTLEMENT,
+    IdempotencyConflictError as SettlementIdempotencyConflictError,
+    SettlementInputError,
+)
 from cockpit.optionality_layer import build_optionality_snapshot
 from cockpit.pipeline import PIPELINE
 from cockpit.position_layer import build_forecast_position
@@ -756,6 +763,144 @@ def get_execution_outcome(order_id: str) -> dict:
 @app.get("/api/v1/decisions/{decision_id}/execution", tags=["execution-simulation"])
 def get_decision_execution(decision_id: str) -> dict:
     return {"outcome": EXECUTION.latest_outcome_for_decision(decision_id)}
+
+
+# --- Milestone 7: delivery / settlement / evaluation -----------------------
+
+_DIAGNOSTIC = {"diagnostic_only": True, "not_executable": True}
+
+
+def _settlement_http(error: Exception) -> HTTPException:
+    """Map settlement/evaluation errors to the milestone's HTTP contract:
+    409 for lifecycle/concurrency conflicts, 422 for invalid/unavailable input."""
+    if isinstance(error, KeyError):
+        return HTTPException(status_code=404, detail=str(error))
+    if isinstance(error, SettlementIdempotencyConflictError):
+        return HTTPException(status_code=409, detail={"error": "idempotency_conflict", "message": str(error)})
+    if isinstance(error, StaleDecisionError):
+        return HTTPException(
+            status_code=409,
+            detail={
+                "error": "stale_decision",
+                "current_status": error.current_status.value,
+                "current_sequence": error.current_sequence,
+                "message": str(error),
+            },
+        )
+    if isinstance(error, InvalidTransitionError):
+        return HTTPException(status_code=409, detail={"error": "invalid_transition", "message": str(error)})
+    if isinstance(error, SettlementInputError):
+        return HTTPException(status_code=422, detail={"error": "unavailable_input", "reason": error.reason.value, "message": str(error)})
+    return HTTPException(status_code=422, detail={"error": "validation_error", "message": str(error)})
+
+
+@app.post("/api/v1/decisions/{decision_id}/deliver", tags=["settlement-evaluation"])
+def deliver_decision(decision_id: str, request: LifecycleActionRequest | None = None) -> dict:
+    """Record SAMPLE physical delivery for a completed period. Diagnostic only."""
+    payload = request or LifecycleActionRequest()
+    try:
+        delivery = SETTLEMENT.deliver(
+            decision_id,
+            expected_status=payload.expected_status,
+            expected_sequence=payload.expected_sequence,
+            idempotency_key=payload.idempotency_key,
+            actor_id=payload.actor_id,
+        )
+    except (KeyError, SettlementIdempotencyConflictError, StaleDecisionError, InvalidTransitionError, SettlementInputError, StagePayloadError, ValueError) as error:
+        raise _settlement_http(error)
+    return {"delivery": delivery, "decision": DECISIONS.get(decision_id), **_DIAGNOSTIC}
+
+
+@app.post("/api/v1/decisions/{decision_id}/settle", tags=["settlement-evaluation"])
+def settle_decision(decision_id: str, request: LifecycleActionRequest | None = None) -> dict:
+    """Compute SAMPLE realised cash flow + incremental P&L vs NO_ACTION. Diagnostic only."""
+    payload = request or LifecycleActionRequest()
+    try:
+        settlement = SETTLEMENT.settle(
+            decision_id,
+            expected_status=payload.expected_status,
+            expected_sequence=payload.expected_sequence,
+            idempotency_key=payload.idempotency_key,
+            actor_id=payload.actor_id,
+        )
+    except (KeyError, SettlementIdempotencyConflictError, StaleDecisionError, InvalidTransitionError, SettlementInputError, StagePayloadError, ValueError) as error:
+        raise _settlement_http(error)
+    return {"settlement": settlement, "decision": DECISIONS.get(decision_id), **_DIAGNOSTIC}
+
+
+@app.post("/api/v1/decisions/{decision_id}/evaluate", tags=["settlement-evaluation"])
+def evaluate_decision(decision_id: str, request: LifecycleActionRequest | None = None) -> dict:
+    """Score the decision against benchmarks (regret, cautious quality label). Diagnostic only."""
+    payload = request or LifecycleActionRequest()
+    try:
+        evaluation = EVALUATION.evaluate(
+            decision_id,
+            expected_status=payload.expected_status,
+            expected_sequence=payload.expected_sequence,
+            idempotency_key=payload.idempotency_key,
+            actor_id=payload.actor_id,
+        )
+    except (KeyError, SettlementIdempotencyConflictError, StaleDecisionError, InvalidTransitionError, SettlementInputError, StagePayloadError, ValueError) as error:
+        raise _settlement_http(error)
+    return {"evaluation": evaluation, "decision": DECISIONS.get(decision_id), **_DIAGNOSTIC}
+
+
+@app.post("/api/v1/decisions/process-completed", tags=["settlement-evaluation"])
+def process_completed_decisions() -> dict:
+    """SAMPLE-only: deliver → settle → evaluate every eligible decision whose delivery
+    period has ended. Never processes future periods. Simulated realised data only."""
+    result = EVALUATION.process_completed()
+    return {"result": result, **_DIAGNOSTIC}
+
+
+@app.get("/api/v1/deliveries", tags=["settlement-evaluation"])
+def list_deliveries() -> dict:
+    return {"deliveries": SETTLEMENT.list_deliveries()}
+
+
+@app.get("/api/v1/deliveries/{delivery_id}", tags=["settlement-evaluation"])
+def get_delivery(delivery_id: str) -> dict:
+    delivery = SETTLEMENT.get_delivery(delivery_id)
+    if delivery is None:
+        raise HTTPException(status_code=404, detail=f"Unknown delivery '{delivery_id}'")
+    return {"delivery": delivery}
+
+
+@app.get("/api/v1/settlements", tags=["settlement-evaluation"])
+def list_settlements() -> dict:
+    return {"settlements": SETTLEMENT.list_settlements()}
+
+
+@app.get("/api/v1/settlements/{settlement_id}", tags=["settlement-evaluation"])
+def get_settlement(settlement_id: str) -> dict:
+    settlement = SETTLEMENT.get_settlement(settlement_id)
+    if settlement is None:
+        raise HTTPException(status_code=404, detail=f"Unknown settlement '{settlement_id}'")
+    return {"settlement": settlement}
+
+
+@app.get("/api/v1/evaluations", tags=["settlement-evaluation"])
+def list_evaluations() -> dict:
+    return {"evaluations": EVALUATION.list_evaluations()}
+
+
+@app.get("/api/v1/evaluations/{evaluation_id}", tags=["settlement-evaluation"])
+def get_evaluation(evaluation_id: str) -> dict:
+    evaluation = EVALUATION.get_evaluation(evaluation_id)
+    if evaluation is None:
+        raise HTTPException(status_code=404, detail=f"Unknown evaluation '{evaluation_id}'")
+    return {"evaluation": evaluation}
+
+
+@app.get("/api/v1/decisions/{decision_id}/evaluation", tags=["settlement-evaluation"])
+def get_decision_evaluation(decision_id: str) -> dict:
+    """Resolve the outcome bundle for one decision (delivery + settlement + evaluation),
+    each null until its stage is reached."""
+    return {
+        "delivery": SETTLEMENT.delivery_for_decision(decision_id),
+        "settlement": SETTLEMENT.settlement_for_decision(decision_id),
+        "evaluation": EVALUATION.evaluation_for_decision(decision_id),
+    }
 
 
 @app.get("/api/v1/cockpit", tags=["snapshots"])

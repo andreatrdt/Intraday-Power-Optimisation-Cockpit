@@ -1,4 +1,4 @@
-import type { AcceptDecisionRequest, AssessTimingResponse, BatteryFlexibilitySnapshot, BatteryPathComparison, BatteryPathPeriodAction, BatteryPathSimulation, CockpitSnapshot, CoordinatorSimulationInput, CoordinatorSnapshot, DataFlowEvent, DecisionBatch, DecisionBatchSummary, DecisionExecutionResponse, DecisionMutationResponse, DecisionRefreshResponse, DelayDecisionRequest, ExecutionOutcome, FeedHealth, ForecastPositionSnapshot, ForecastRevision, HedgeTimingAssessment, HorizonMode, LineageResponse, LiveStateSnapshot, MarketSnapshot, ModifyDecisionRequest, OptimisationRun, OptionalitySnapshot, RejectDecisionRequest, ReopenDecisionRequest, SampleRegime, SubmitSimulatedRequest, SubmitSimulatedResponse, TradeDecision } from "./types";
+import type { AcceptDecisionRequest, AssessTimingResponse, BatteryFlexibilitySnapshot, BatteryPathComparison, BatteryPathPeriodAction, BatteryPathSimulation, CockpitSnapshot, CoordinatorSimulationInput, CoordinatorSnapshot, DataFlowEvent, DecisionBatch, DecisionBatchSummary, DecisionEvaluationResult, DecisionExecutionResponse, DecisionMutationResponse, DecisionOutcomeBundle, DecisionRefreshResponse, DelayDecisionRequest, DeliverResponse, EvaluateResponse, ExecutionOutcome, FeedHealth, ForecastPositionSnapshot, ForecastRevision, HedgeTimingAssessment, HorizonMode, LifecycleActionRequest, LineageResponse, LiveStateSnapshot, MarketSnapshot, ModifyDecisionRequest, OptimisationRun, OptionalitySnapshot, ProcessCompletedResponse, RejectDecisionRequest, ReopenDecisionRequest, SampleRegime, SettleResponse, SubmitSimulatedRequest, SubmitSimulatedResponse, TradeDecision } from "./types";
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL ?? "http://127.0.0.1:8000/api/v1";
 
@@ -226,4 +226,31 @@ export function submitSimulated(decisionId: string, body: SubmitSimulatedRequest
 export async function loadDecisionExecution(decisionId: string): Promise<ExecutionOutcome | null> {
   const response = await request<DecisionExecutionResponse>(`/decisions/${decisionId}/execution`);
   return response.outcome;
+}
+
+// -- delivery / settlement / evaluation (Milestone 7; SAMPLE diagnostic only) --
+
+export function deliverDecision(decisionId: string, body: LifecycleActionRequest = {}): Promise<DeliverResponse> {
+  return request<DeliverResponse>(`/decisions/${decisionId}/deliver`, { method: "POST", body: JSON.stringify(body) });
+}
+
+export function settleDecision(decisionId: string, body: LifecycleActionRequest = {}): Promise<SettleResponse> {
+  return request<SettleResponse>(`/decisions/${decisionId}/settle`, { method: "POST", body: JSON.stringify(body) });
+}
+
+export function evaluateDecision(decisionId: string, body: LifecycleActionRequest = {}): Promise<EvaluateResponse> {
+  return request<EvaluateResponse>(`/decisions/${decisionId}/evaluate`, { method: "POST", body: JSON.stringify(body) });
+}
+
+export function processCompletedDecisions(): Promise<ProcessCompletedResponse> {
+  return request<ProcessCompletedResponse>("/decisions/process-completed", { method: "POST", body: "{}" });
+}
+
+export async function loadDecisionOutcome(decisionId: string): Promise<DecisionOutcomeBundle> {
+  return request<DecisionOutcomeBundle>(`/decisions/${decisionId}/evaluation`);
+}
+
+export async function loadEvaluations(): Promise<DecisionEvaluationResult[]> {
+  const response = await request<{ evaluations: DecisionEvaluationResult[] }>("/evaluations");
+  return response.evaluations;
 }

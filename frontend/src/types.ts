@@ -1746,3 +1746,185 @@ export interface SubmitSimulatedResponse {
 export interface DecisionExecutionResponse {
   outcome: ExecutionOutcome | null;
 }
+
+// -- Milestone 7: delivery / settlement / realised P&L / evaluation ----------
+
+export type ImbalanceDirection = "LONG" | "SHORT" | "FLAT";
+export type BenchmarkName = "NO_ACTION" | "MODEL_RECOMMENDATION" | "TRADER_INSTRUCTION" | "PERFECT_FORESIGHT";
+export type DecisionQualityLabel =
+  | "OUTPERFORMED_NO_ACTION" | "UNDERPERFORMED_NO_ACTION" | "IN_LINE_WITH_NO_ACTION" | "UNAVAILABLE";
+export type ProcessSkipReason =
+  | "DELIVERY_PERIOD_NOT_ENDED" | "NOT_EXECUTION_COMPLETE" | "MISSING_REALISED_GENERATION"
+  | "MISSING_SETTLEMENT_PRICES" | "MISSING_CONTRACTED_POSITION" | "ALREADY_EVALUATED";
+
+export interface DeliveryResult {
+  delivery_id: string;
+  decision_id: string;
+  settlement_period: number;
+  delivery_start: string;
+  delivery_end: string;
+  delivered_at: string;
+  initial_contracted_position_mwh: number;
+  executed_buy_mwh: number;
+  executed_sell_mwh: number;
+  final_contracted_position_mwh: number;
+  realised_generation_mwh: number;
+  realised_imbalance_mwh: number;
+  imbalance_direction: ImbalanceDirection;
+  source_mode: SourceMode;
+  quality: Quality;
+  lineage_ids: string[];
+  run_mode: string;
+  diagnostic_only: boolean;
+  not_executable: boolean;
+  settlement_version: string;
+}
+
+export interface SettlementCalculation {
+  settlement_id: string;
+  decision_id: string;
+  settled_at: string;
+  realised_generation_mwh: number;
+  final_contracted_position_mwh: number;
+  realised_imbalance_mwh: number;
+  imbalance_direction: ImbalanceDirection;
+  imbalance_buy_price_gbp_per_mwh: number;
+  imbalance_sell_price_gbp_per_mwh: number;
+  execution_cashflow_gbp: number;
+  execution_fees_gbp: number;
+  imbalance_cashflow_gbp: number;
+  total_realised_cashflow_gbp: number;
+  realised_pnl_gbp: number;
+  calculation_basis: string;
+  warnings: string[];
+  lineage_ids: string[];
+  source_mode: SourceMode;
+  quality: Quality;
+  diagnostic_only: boolean;
+  not_executable: boolean;
+  settlement_version: string;
+}
+
+export interface RealisedPnlAttribution {
+  execution_price_effect_gbp: number;
+  execution_fees_effect_gbp: number;
+  imbalance_reduction_effect_gbp: number;
+  imbalance_residual_effect_gbp: number;
+  total_incremental_pnl_gbp: number;
+  reconciliation_error_gbp: number;
+}
+
+export interface SettlementBenchmarkResult {
+  benchmark_name: BenchmarkName;
+  description: string;
+  attainable: boolean;
+  hindsight_only: boolean;
+  assumed_execution_mode: string | null;
+  hedge_buy_mwh: number;
+  hedge_sell_mwh: number;
+  execution_price_gbp_per_mwh: number | null;
+  execution_fees_gbp: number;
+  final_position_mwh: number;
+  realised_imbalance_mwh: number;
+  imbalance_direction: ImbalanceDirection;
+  total_cashflow_gbp: number;
+  incremental_pnl_vs_no_action_gbp: number;
+  warnings: string[];
+  assumptions: string[];
+}
+
+export interface DecisionEvaluationResult {
+  evaluation_id: string;
+  decision_id: string;
+  evaluated_at: string;
+  realised_outcome: SettlementCalculation;
+  pnl_attribution: RealisedPnlAttribution;
+  benchmark_results: SettlementBenchmarkResult[];
+  regret_vs_no_action_gbp: number;
+  regret_vs_model_recommendation_gbp: number | null;
+  regret_vs_perfect_foresight_gbp: number;
+  decision_quality_label: DecisionQualityLabel;
+  decision_quality_note: string;
+  warnings: string[];
+  lineage_ids: string[];
+  source_mode: SourceMode;
+  quality: Quality;
+  diagnostic_only: boolean;
+  not_executable: boolean;
+  settlement_version: string;
+}
+
+export interface LifecycleActionRequest extends LifecycleConcurrency {
+  idempotency_key?: string | null;
+  actor_id?: string | null;
+}
+
+export interface DeliverResponse {
+  delivery: DeliveryResult;
+  decision: TradeDecision;
+  diagnostic_only: boolean;
+  not_executable: boolean;
+}
+
+export interface SettleResponse {
+  settlement: SettlementCalculation;
+  decision: TradeDecision;
+  diagnostic_only: boolean;
+  not_executable: boolean;
+}
+
+export interface EvaluateResponse {
+  evaluation: DecisionEvaluationResult;
+  decision: TradeDecision;
+  diagnostic_only: boolean;
+  not_executable: boolean;
+}
+
+export interface DecisionOutcomeBundle {
+  delivery: DeliveryResult | null;
+  settlement: SettlementCalculation | null;
+  evaluation: DecisionEvaluationResult | null;
+}
+
+export interface ProcessedDecision {
+  decision_id: string;
+  settlement_period: number;
+  delivery_id: string;
+  settlement_id: string;
+  evaluation_id: string;
+  decision_quality_label: DecisionQualityLabel;
+}
+
+export interface SkippedDecision {
+  decision_id: string;
+  settlement_period: number;
+  reason: ProcessSkipReason;
+  detail: string;
+}
+
+export interface ProcessCompletedResult {
+  as_of: string;
+  processed: ProcessedDecision[];
+  existing: string[];
+  skipped: SkippedDecision[];
+  diagnostic_only: boolean;
+  not_executable: boolean;
+  warning: string;
+}
+
+export interface ProcessCompletedResponse {
+  result: ProcessCompletedResult;
+  diagnostic_only: boolean;
+  not_executable: boolean;
+}
+
+/** 409 (lifecycle/concurrency) and 422 (invalid/unavailable input) error detail. */
+export interface SettlementErrorDetail {
+  error:
+    | "idempotency_conflict" | "stale_decision" | "invalid_transition"
+    | "unavailable_input" | "validation_error";
+  message: string;
+  reason?: ProcessSkipReason;
+  current_status?: DecisionStatus;
+  current_sequence?: number;
+}

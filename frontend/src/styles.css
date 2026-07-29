@@ -675,3 +675,51 @@ button.ghost { background: transparent; border: 1px solid var(--border); border-
 .fill-breakdown th, .fill-breakdown td { text-align: right; padding: 3px 6px; border-bottom: 1px solid var(--border); }
 .fill-breakdown th:first-child, .fill-breakdown td:first-child { text-align: left; }
 .assumption-line { font-size: 11.5px; color: var(--muted); margin: 3px 0; }
+
+/* --- Milestone 7: outcome & evaluation ------------------------------------ */
+.process-warning { grid-area: auto; color: var(--amber); font-size: 12px; margin: 6px 0 0; }
+.status-tag.status-submitted { color: var(--cyan); border-color: #bcd7ea; }
+.status-tag.status-filled { color: var(--green); border-color: #b8ddc7; }
+.status-tag.status-partially_filled { color: var(--amber); border-color: #e6d4b0; }
+.status-tag.status-expired, .status-tag.status-cancelled { color: var(--red); border-color: #e6c6c6; }
+.status-tag.status-delivered { color: var(--blue); border-color: #bcd7ea; }
+.status-tag.status-settled { color: var(--violet); border-color: #d5cee6; }
+.status-tag.status-evaluated { color: var(--green); border-color: #b8ddc7; background: #eef7f1; }
+
+.outcome-panel { border: 1px solid var(--border); border-radius: 8px; padding: 12px 14px; margin-bottom: 14px; background: var(--panel-2); }
+.outcome-panel h4 { margin: 0 0 6px; font-size: 12px; letter-spacing: .05em; text-transform: uppercase; color: var(--muted); }
+.outcome-panel .pill-row { display: flex; gap: 6px; margin: 0 0 8px; }
+.outcome-disclaimer { font-size: 11.5px; color: var(--amber); margin: 0 0 10px; }
+.outcome-block { border-top: 1px solid var(--border); padding-top: 10px; margin-top: 10px; }
+.outcome-block h5 { margin: 0 0 6px; font-size: 11.5px; letter-spacing: .05em; text-transform: uppercase; color: var(--text); }
+.sign-note { font-size: 11px; color: var(--muted); margin: 0 0 6px; }
+.cash { font-family: var(--mono, "DM Mono", monospace); font-variant-numeric: tabular-nums; }
+.cash.total { font-weight: 700; }
+.imbalance-tag { font-size: 10px; font-weight: 700; padding: 1px 6px; border-radius: 4px; margin-left: 6px; }
+.imbalance-tag.imbalance-long { color: var(--green); background: #e4f2ea; }
+.imbalance-tag.imbalance-short { color: var(--red); background: #fbeeee; }
+.imbalance-tag.imbalance-flat { color: var(--muted); background: var(--panel-2); }
+.reconcile-ok { color: var(--green); font-size: 12px; margin: 4px 0 0; }
+
+.benchmark-table { width: 100%; border-collapse: collapse; font-size: 12px; margin-top: 4px; }
+.benchmark-table th, .benchmark-table td { text-align: right; padding: 4px 6px; border-bottom: 1px solid var(--border); }
+.benchmark-table th:first-child, .benchmark-table td:first-child { text-align: left; }
+.benchmark-table tr.benchmark-hindsight { background: #faf6ff; }
+.benchmark-table .not-attainable { color: var(--violet); font-size: 10px; }
+.hindsight-banner { font-size: 11.5px; color: var(--violet); margin: 6px 0 0; }
+.hindsight-banner strong { letter-spacing: .04em; }
+
+.quality-label { display: inline-block; font-size: 11px; font-weight: 700; letter-spacing: .04em; padding: 3px 8px; border-radius: 4px; margin: 2px 0; }
+.quality-label.quality-outperformed_no_action { color: var(--green); background: #e4f2ea; }
+.quality-label.quality-underperformed_no_action { color: var(--red); background: #fbeeee; }
+.quality-label.quality-in_line_with_no_action { color: var(--muted); background: var(--panel-2); }
+.quality-label.quality-unavailable { color: var(--muted); background: var(--panel-2); }
+.quality-caption, .quality-note, .regret-note { font-size: 11.5px; color: var(--muted); margin: 4px 0; }
+
+.completed-queue { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 10px; }
+.completed-card { border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; background: var(--panel); cursor: pointer; display: flex; flex-direction: column; gap: 8px; }
+.completed-card:hover, .completed-card:focus { border-color: var(--cyan); outline: none; }
+.cc-primary { display: flex; align-items: center; gap: 8px; }
+.cc-outcome { display: flex; flex-direction: column; gap: 4px; }
+.cc-pnl { font-family: var(--mono, "DM Mono", monospace); font-size: 12px; font-variant-numeric: tabular-nums; }
+.cc-pending { font-size: 12px; color: var(--muted); }

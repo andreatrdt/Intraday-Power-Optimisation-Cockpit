@@ -3,26 +3,43 @@ import { Badge } from "./App";
 import { ConnectionStatus } from "./ConnectionStatus";
 import { DecisionExecutionPanel } from "./DecisionExecutionPanel";
 import { DecisionLifecycleControls } from "./DecisionLifecycleControls";
+import { DecisionOutcomePanel } from "./DecisionOutcomePanel";
 import { ProductNav } from "./ProductNav";
 import { formatTimestampWithZone } from "./time";
 import {
   loadDecisionBatches,
   loadDecisionBatchSummaries,
   loadDecisions,
+  loadEvaluations,
   loadForecastRevisions,
   loadHedgeTimingAssessments,
+  processCompletedDecisions,
   refreshDecisions,
   reassessTiming,
 } from "./api";
 import type {
   DecisionBatch,
   DecisionBatchSummary,
+  DecisionEvaluationResult,
+  DecisionQualityLabel,
+  DecisionStatus,
   ForecastRevision,
   HedgeTimingAssessment,
   TimingPriority,
   TimingVerdict,
   TradeDecision,
 } from "./types";
+
+// Lifecycle states beyond execution: the outcome/evaluation stages.
+const COMPLETED_STATES = new Set<DecisionStatus>(["DELIVERED", "SETTLED", "EVALUATED"]);
+const QUALITY_LABEL: Record<DecisionQualityLabel, string> = {
+  OUTPERFORMED_NO_ACTION: "Outperformed no-action",
+  UNDERPERFORMED_NO_ACTION: "Underperformed no-action",
+  IN_LINE_WITH_NO_ACTION: "In line with no-action",
+  UNAVAILABLE: "Unavailable",
+};
+// SAMPLE-only batch action; explicit that it is not live/historical performance.
+const PROCESS_WARNING = "This uses simulated realised generation and settlement prices. It does not represent live or historical trading performance.";
 
 // The backend owns all decision / revision / timing / priority logic. This page
 // only reads, joins by id, filters and sorts. The client sort mirrors the
@@ -43,6 +60,7 @@ interface QueueData {
   decisions: TradeDecision[];
   revisions: Map<string, ForecastRevision>;
   assessments: Map<string, HedgeTimingAssessment>; // latest per decision_id
+  evaluations: Map<string, DecisionEvaluationResult>; // by decision_id
   batches: DecisionBatch[];
   summaries: DecisionBatchSummary[];
 }
@@ -53,19 +71,23 @@ interface Filters {
   action: string;
   status: string;
   quality: string;
+  outcome: string;
+  decisionQuality: string;
   batch: string;
   spFrom: string;
   spTo: string;
 }
 
-const EMPTY_FILTERS: Filters = { priority: "ALL", verdict: "ALL", action: "ALL", status: "ALL", quality: "ALL", batch: "ALL", spFrom: "", spTo: "" };
+const EMPTY_FILTERS: Filters = { priority: "ALL", verdict: "ALL", action: "ALL", status: "ALL", quality: "ALL", outcome: "ALL", decisionQuality: "ALL", batch: "ALL", spFrom: "", spTo: "" };
 const DECISION_STATUSES = ["PROPOSED", "ACCEPTED", "MODIFIED", "REJECTED", "DELAYED", "ACTIVE_ONLY"];
+// Outcome (delivery/settlement/evaluation) lifecycle filter.
+const OUTCOME_FILTERS = ["ALL", "ACTIVE", "COMPLETED", "DELIVERED", "SETTLED", "EVALUATED"];
 
 export function DecisionQueuePage() {
   const [data, setData] = useState<QueueData | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [lastLoaded, setLastLoaded] = useState<Date | null>(null);
-  const [busy, setBusy] = useState<null | "refresh" | "reassess">(null);
+  const [busy, setBusy] = useState<null | "refresh" | "reassess" | "process">(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [selected, setSelected] = useState<string | null>(null);
   const [filters, setFilters] = useState<Filters>(EMPTY_FILTERS);
@@ -73,8 +95,8 @@ export function DecisionQueuePage() {
 
   const loadAll = useCallback(async () => {
     try {
-      const [decisions, revisions, assessments, batches, summaries] = await Promise.all([
-        loadDecisions(), loadForecastRevisions(), loadHedgeTimingAssessments(), loadDecisionBatches(), loadDecisionBatchSummaries(),
+      const [decisions, revisions, assessments, evaluations, batches, summaries] = await Promise.all([
+        loadDecisions(), loadForecastRevisions(), loadHedgeTimingAssessments(), loadEvaluations(), loadDecisionBatches(), loadDecisionBatchSummaries(),
       ]);
       const revisionMap = new Map(revisions.map((r) => [r.revision_id, r]));
       const assessmentMap = new Map<string, HedgeTimingAssessment>();
@@ -82,7 +104,8 @@ export function DecisionQueuePage() {
         // Assessments are newest-first; keep the first (latest) per decision.
         if (!assessmentMap.has(assessment.decision_id)) assessmentMap.set(assessment.decision_id, assessment);
       }
-      setData({ decisions, revisions: revisionMap, assessments: assessmentMap, batches, summaries });
+      const evaluationMap = new Map(evaluations.map((e) => [e.decision_id, e]));
+      setData({ decisions, revisions: revisionMap, assessments: assessmentMap, evaluations: evaluationMap, batches, summaries });
       setLastLoaded(new Date());
       setError(null);
     } catch (cause) {
@@ -123,6 +146,21 @@ export function DecisionQueuePage() {
     }
   };
 
+  const onProcessCompleted = async () => {
+    setBusy("process");
+    setNotice(null);
+    try {
+      const response = await processCompletedDecisions();
+      const { processed, existing, skipped } = response.result;
+      setNotice(`Processed ${processed.length} completed SAMPLE period(s); ${existing.length} already evaluated; ${skipped.length} skipped. ${PROCESS_WARNING}`);
+      await loadAll();
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Processing completed periods failed");
+    } finally {
+      setBusy(null);
+    }
+  };
+
   const meta = data?.decisions[0]?.context;
 
   const passesFilters = useCallback((decision: TradeDecision, assessment: HedgeTimingAssessment | undefined) => {
@@ -132,16 +170,25 @@ export function DecisionQueuePage() {
     if (filters.status === "ACTIVE_ONLY" && decision.status === "REJECTED") return false;
     else if (filters.status !== "ALL" && filters.status !== "ACTIVE_ONLY" && decision.status !== filters.status) return false;
     if (filters.quality !== "ALL" && decision.context.quality !== filters.quality) return false;
+    // Outcome (delivery/settlement/evaluation) lifecycle filter.
+    const isCompleted = COMPLETED_STATES.has(decision.status);
+    if (filters.outcome === "ACTIVE" && isCompleted) return false;
+    if (filters.outcome === "COMPLETED" && !isCompleted) return false;
+    if (["DELIVERED", "SETTLED", "EVALUATED"].includes(filters.outcome) && decision.status !== filters.outcome) return false;
+    // Decision-quality filter (from the joined evaluation).
+    if (filters.decisionQuality !== "ALL" && data?.evaluations.get(decision.decision_id)?.decision_quality_label !== filters.decisionQuality) return false;
     if (filters.batch !== "ALL" && decision.batch_id !== filters.batch) return false;
     const sp = decision.context.settlement_period;
     if (filters.spFrom && sp < Number(filters.spFrom)) return false;
     if (filters.spTo && sp > Number(filters.spTo)) return false;
     return true;
-  }, [filters]);
+  }, [filters, data]);
 
   const ranked = useMemo(() => {
     if (!data) return [];
     return data.decisions
+      // Active/actionable decisions first; completed/evaluated live in their own section.
+      .filter((decision) => !COMPLETED_STATES.has(decision.status))
       .map((decision) => ({ decision, assessment: data.assessments.get(decision.decision_id) }))
       .filter((row): row is { decision: TradeDecision; assessment: HedgeTimingAssessment } => Boolean(row.assessment))
       .filter((row) => passesFilters(row.decision, row.assessment))
@@ -151,6 +198,15 @@ export function DecisionQueuePage() {
         || b.assessment.gate_closure_score - a.assessment.gate_closure_score
         || a.decision.decision_id.localeCompare(b.decision.decision_id))
       .slice(0, TOP_CAP);
+  }, [data, passesFilters]);
+
+  // Completed / evaluated decisions are kept accessible but out of the active queue.
+  const completed = useMemo(() => {
+    if (!data) return [];
+    return data.decisions
+      .filter((decision) => COMPLETED_STATES.has(decision.status))
+      .filter((decision) => passesFilters(decision, data.assessments.get(decision.decision_id)))
+      .sort((a, b) => a.context.settlement_period - b.context.settlement_period);
   }, [data, passesFilters]);
 
   const totals = useMemo(() => {
@@ -197,8 +253,10 @@ export function DecisionQueuePage() {
         <div className="decision-actions">
           <button className="primary-action" disabled={busy !== null} onClick={() => void onRefresh()}>{busy === "refresh" ? "Refreshing…" : "Refresh decisions"}</button>
           <button disabled={busy !== null} onClick={() => void onReassess()}>{busy === "reassess" ? "Reassessing…" : "Reassess timing"}</button>
+          <button disabled={busy !== null} onClick={() => void onProcessCompleted()}>{busy === "process" ? "Processing…" : "Process completed SAMPLE periods"}</button>
           <span className="control-note">Neither action submits a trade. All output is diagnostic and non-executable.</span>
         </div>
+        <p className="process-warning">{PROCESS_WARNING}</p>
         {notice && <p className="decision-notice">{notice}</p>}
       </section>
 
@@ -222,6 +280,8 @@ export function DecisionQueuePage() {
         <label><span>Action</span><select value={filters.action} onChange={(e) => setFilters({ ...filters, action: e.target.value })}>{["ALL", "BUY", "SELL", "NO_ACTION"].map((v) => <option key={v}>{v}</option>)}</select></label>
         <label><span>Status</span><select value={filters.status} onChange={(e) => setFilters({ ...filters, status: e.target.value })}>{["ALL", ...DECISION_STATUSES].map((v) => <option key={v}>{v}</option>)}</select></label>
         <label><span>Quality</span><select value={filters.quality} onChange={(e) => setFilters({ ...filters, quality: e.target.value })}>{["ALL", "FRESH", "REVISED", "PARTIAL", "STALE", "MISSING", "INVALID"].map((v) => <option key={v}>{v}</option>)}</select></label>
+        <label><span>Outcome</span><select value={filters.outcome} onChange={(e) => setFilters({ ...filters, outcome: e.target.value })}>{OUTCOME_FILTERS.map((v) => <option key={v}>{v}</option>)}</select></label>
+        <label><span>Decision quality</span><select value={filters.decisionQuality} onChange={(e) => setFilters({ ...filters, decisionQuality: e.target.value })}>{["ALL", "OUTPERFORMED_NO_ACTION", "UNDERPERFORMED_NO_ACTION", "IN_LINE_WITH_NO_ACTION", "UNAVAILABLE"].map((v) => <option key={v}>{v}</option>)}</select></label>
         <label><span>Batch</span><select value={filters.batch} onChange={(e) => setFilters({ ...filters, batch: e.target.value })}><option>ALL</option>{data?.batches.map((b) => <option key={b.batch_id} value={b.batch_id}>{b.batch_id}</option>)}</select></label>
         <label><span>SP from</span><input type="number" value={filters.spFrom} onChange={(e) => setFilters({ ...filters, spFrom: e.target.value })} /></label>
         <label><span>SP to</span><input type="number" value={filters.spTo} onChange={(e) => setFilters({ ...filters, spTo: e.target.value })} /></label>
@@ -243,6 +303,29 @@ export function DecisionQueuePage() {
           : <section className="decision-queue">
             {ranked.map(({ decision, assessment }) => <DecisionCard key={decision.decision_id} decision={decision} assessment={assessment} revision={decision.context.forecast_revision_id ? data.revisions.get(decision.context.forecast_revision_id) : undefined} onOpen={() => setSelected(decision.decision_id)} />)}
           </section>}
+      </>}
+
+      {/* D. Completed & evaluated outcomes (kept out of the active queue) */}
+      {data && completed.length > 0 && <>
+        <div className="section-heading"><div><p className="eyebrow">COMPLETED &amp; EVALUATED</p><h2>Delivered · settled · evaluated</h2></div><span>Read-only realised outcomes · {completed.length} shown</span></div>
+        <section className="completed-queue">
+          {completed.map((decision) => {
+            const evaluation = data.evaluations.get(decision.decision_id);
+            return <article key={decision.decision_id} className="completed-card" tabIndex={0} onClick={() => setSelected(decision.decision_id)} onKeyDown={(e) => e.key === "Enter" && setSelected(decision.decision_id)}>
+              <div className="cc-primary">
+                <span className={`status-tag status-${decision.status.toLowerCase()}`}>{decision.status}</span>
+                <span className="dc-sp">SP{decision.context.settlement_period}</span>
+              </div>
+              {evaluation
+                ? <div className="cc-outcome">
+                    <span className={`quality-label quality-${evaluation.decision_quality_label.toLowerCase()}`}>{QUALITY_LABEL[evaluation.decision_quality_label]}</span>
+                    <span className="cc-pnl">Incr. P&amp;L {signed(evaluation.realised_outcome.realised_pnl_gbp, 2)}</span>
+                  </div>
+                : <span className="cc-pending">Awaiting evaluation</span>}
+              <div className="dc-badges"><Badge value={decision.context.source_mode} /><Badge value={decision.context.quality} /></div>
+            </article>;
+          })}
+        </section>
       </>}
 
       {/* E. Batch summaries */}
@@ -344,6 +427,7 @@ function DecisionDrawer({ decision, assessment, revision, onClose, onReassess, o
 
       <DecisionLifecycleControls decision={decision} revision={revision} assessment={assessment} onReload={onReload} />
       <DecisionExecutionPanel decision={decision} assessment={assessment} onReload={onReload} />
+      <DecisionOutcomePanel decision={decision} onReload={onReload} />
 
       <section className="drawer-section">
         <h4>What changed</h4>

@@ -502,6 +502,8 @@ class DecisionStore:
         position_after_mwh: float | None = None,
         at: datetime | None = None,
         reason: str | None = None,
+        expected_status: DecisionStatus | None = None,
+        expected_sequence: int | None = None,
     ) -> TradeDecision:
         delivered_at = at or _utcnow()
         settlement = SettlementResult(
@@ -515,6 +517,8 @@ class DecisionStore:
             actor=DecisionActor.SYSTEM,
             reason=reason or "Delivery period completed; physical outcome observed.",
             at=delivered_at,
+            expected_status=expected_status,
+            expected_sequence=expected_sequence,
             updates={"settlement_result": settlement},
         )
 
@@ -527,6 +531,8 @@ class DecisionStore:
         realised_imbalance_mwh: float | None = None,
         at: datetime | None = None,
         reason: str | None = None,
+        expected_status: DecisionStatus | None = None,
+        expected_sequence: int | None = None,
     ) -> TradeDecision:
         settled_at = at or _utcnow()
         with self._lock:
@@ -546,6 +552,8 @@ class DecisionStore:
                 actor=DecisionActor.SYSTEM,
                 reason=reason or "Settlement computed against realised reference price.",
                 at=settled_at,
+                expected_status=expected_status,
+                expected_sequence=expected_sequence,
                 updates={"settlement_result": settlement},
             )
 
@@ -558,6 +566,8 @@ class DecisionStore:
         decision_quality_note: str | None = None,
         at: datetime | None = None,
         reason: str | None = None,
+        expected_status: DecisionStatus | None = None,
+        expected_sequence: int | None = None,
     ) -> TradeDecision:
         from cockpit.decision_models import EvaluationResult
 
@@ -574,6 +584,8 @@ class DecisionStore:
             actor=DecisionActor.SYSTEM,
             reason=reason or "Decision evaluated against benchmarks.",
             at=evaluated_at,
+            expected_status=expected_status,
+            expected_sequence=expected_sequence,
             updates={"evaluation_result": evaluation},
         )
 
