@@ -1662,3 +1662,87 @@ export interface ConflictDetail {
   current_sequence?: number;
   message: string;
 }
+
+// -- Simulated execution (Milestone 6B) --
+
+export type ExecutionMode = "IDEAL" | "REALISTIC" | "STRESS";
+export type ExecutionStatus = "NOT_SUBMITTED" | "SUBMITTED" | "PARTIALLY_FILLED" | "FILLED" | "CANCELLED" | "EXPIRED";
+
+export interface SimulatedFill {
+  fill_id: string;
+  order_id: string;
+  filled_at: string;
+  side: string;
+  filled_volume_mwh: number;
+  fill_price_gbp_per_mwh: number;
+  fee_gbp: number;
+  slippage_gbp_per_mwh: number;
+  order_book_level: number | null;
+  assumption_basis: string;
+}
+
+export interface SimulatedOrder {
+  order_id: string;
+  decision_id: string;
+  submitted_at: string;
+  actor: DecisionActor;
+  actor_id: string | null;
+  side: string;
+  requested_volume_mwh: number;
+  limit_price: number | null;
+  execution_mode: ExecutionMode;
+  market_snapshot_id: string | null;
+  optimisation_run_id: string | null;
+  settlement_period: number;
+  delivery_start: string;
+  gate_closure_at: string | null;
+  source_mode: SourceMode;
+  quality: Quality;
+  diagnostic_only: boolean;
+  not_executable: boolean;
+  simulator_version: string;
+}
+
+export interface ExecutionOutcome {
+  order: SimulatedOrder;
+  fills: SimulatedFill[];
+  total_filled_volume_mwh: number;
+  unfilled_volume_mwh: number;
+  average_fill_price_gbp_per_mwh: number | null;
+  best_price_before_execution_gbp_per_mwh: number | null;
+  total_fees_gbp: number;
+  total_execution_cost_gbp: number;
+  total_slippage_gbp: number;
+  execution_status: ExecutionStatus;
+  execution_mode: ExecutionMode;
+  levels_consumed: number;
+  warnings: string[];
+  assumptions_used: string[];
+  diagnostic_only: boolean;
+  not_executable: boolean;
+  trustworthy_for_live_trading: boolean;
+  simulator_version: string;
+}
+
+export interface SubmitSimulatedRequest {
+  execution_mode: ExecutionMode;
+  expected_status?: DecisionStatus | null;
+  expected_sequence?: number | null;
+  idempotency_key?: string | null;
+  actor_id?: string | null;
+}
+
+export interface SubmitSimulatedResponse {
+  outcome: ExecutionOutcome;
+  decision: TradeDecision;
+  execution_mode: ExecutionMode;
+  simulator_version: string;
+  assumptions_used: string[];
+  diagnostic_only: boolean;
+  not_executable: boolean;
+  trustworthy_for_live_trading: boolean;
+}
+
+export interface DecisionExecutionResponse {
+  outcome: ExecutionOutcome | null;
+}

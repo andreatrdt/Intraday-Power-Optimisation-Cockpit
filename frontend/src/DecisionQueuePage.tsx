@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Badge } from "./App";
 import { ConnectionStatus } from "./ConnectionStatus";
+import { DecisionExecutionPanel } from "./DecisionExecutionPanel";
 import { DecisionLifecycleControls } from "./DecisionLifecycleControls";
 import { ProductNav } from "./ProductNav";
 import { formatTimestampWithZone } from "./time";
@@ -342,6 +343,7 @@ function DecisionDrawer({ decision, assessment, revision, onClose, onReassess, o
       </div>
 
       <DecisionLifecycleControls decision={decision} revision={revision} assessment={assessment} onReload={onReload} />
+      <DecisionExecutionPanel decision={decision} assessment={assessment} onReload={onReload} />
 
       <section className="drawer-section">
         <h4>What changed</h4>

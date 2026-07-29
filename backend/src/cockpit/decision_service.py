@@ -372,6 +372,8 @@ class DecisionStore:
         requested_mwh: float | None = None,
         at: datetime | None = None,
         reason: str | None = None,
+        expected_status: DecisionStatus | None = None,
+        expected_sequence: int | None = None,
     ) -> TradeDecision:
         submitted_at = at or _utcnow()
         with self._lock:
@@ -387,8 +389,10 @@ class DecisionStore:
                 decision_id,
                 DecisionStatus.SUBMITTED,
                 actor=DecisionActor.SYSTEM,
-                reason=reason or "Instruction submitted to the simulated market.",
+                reason=reason or "Submitted to the internal execution simulator.",
                 at=submitted_at,
+                expected_status=expected_status,
+                expected_sequence=expected_sequence,
                 updates={"execution_result": execution},
             )
 

@@ -650,3 +650,28 @@ button.ghost { background: transparent; border: 1px solid var(--border); border-
 .lifecycle-conflict button { margin-left: auto; border: 1px solid var(--red); background: #fff; color: var(--red); border-radius: 5px; padding: 4px 10px; cursor: pointer; }
 .lifecycle-error { background: #fbeeee; border: 1px solid #e6c6c6; border-radius: 6px; padding: 8px 10px; margin-bottom: 8px; font-size: 12.5px; color: var(--red); }
 .lifecycle-success { background: #e9f4ee; border: 1px solid #b8ddc7; border-radius: 6px; padding: 8px 10px; margin-bottom: 8px; font-size: 12.5px; color: var(--green); }
+
+/* Simulated execution panel (Milestone 6B) */
+.execution-panel { border: 1px solid var(--border); border-radius: 8px; padding: 12px 14px; margin-bottom: 14px; }
+.execution-panel h4 { margin: 0 0 6px; font-size: 12px; letter-spacing: .05em; text-transform: uppercase; color: var(--muted); }
+.execution-panel .pill-row { display: flex; gap: 6px; margin: 0 0 10px; }
+.submit-form .detail-list { margin-bottom: 8px; }
+.mode-select { display: flex; flex-direction: column; gap: 3px; font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: .05em; }
+.mode-select select { padding: 6px 8px; border: 1px solid var(--border); border-radius: 6px; font-size: 13px; }
+.mode-note { font-size: 12px !important; color: var(--muted); margin: 6px 0 !important; }
+.submit-sim { background: var(--violet); color: #fff; border: none; border-radius: 6px; padding: 9px 18px; font-weight: 600; cursor: pointer; }
+.submit-sim:disabled { background: #b3aac9; cursor: not-allowed; }
+.execution-outcome .outcome-head { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+.exec-status { font-size: 11px; font-weight: 700; padding: 2px 8px; border-radius: 4px; }
+.exec-status.exec-filled { background: #e4f2ea; color: var(--green); }
+.exec-status.exec-partially_filled { background: #fbf1dd; color: var(--amber); }
+.exec-status.exec-expired { background: #fbeeee; color: var(--red); }
+.exec-status.exec-submitted { background: #e7f1f9; color: var(--cyan); }
+.exec-mode { font-size: 11px; color: var(--muted); font-weight: 600; }
+.sim-version { font-size: 10.5px; color: var(--muted); font-family: "DM Mono", monospace; }
+.fill-breakdown { margin: 8px 0; }
+.fill-breakdown > span { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: .05em; }
+.fill-breakdown table { width: 100%; border-collapse: collapse; margin-top: 4px; font-size: 12px; }
+.fill-breakdown th, .fill-breakdown td { text-align: right; padding: 3px 6px; border-bottom: 1px solid var(--border); }
+.fill-breakdown th:first-child, .fill-breakdown td:first-child { text-align: left; }
+.assumption-line { font-size: 11.5px; color: var(--muted); margin: 3px 0; }

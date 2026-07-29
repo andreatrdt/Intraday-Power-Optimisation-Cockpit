@@ -30,6 +30,8 @@ from cockpit.decision_orchestrator import ORCHESTRATOR
 from cockpit.decision_prioritisation import HEDGE_TIMING
 from cockpit.decision_service import DECISIONS, DecisionValidationError, StaleDecisionError
 from cockpit.decision_state_machine import InvalidTransitionError, StagePayloadError
+from cockpit.execution_models import SubmitSimulatedRequest
+from cockpit.execution_service import EXECUTION, IdempotencyConflictError
 from cockpit.hedge_timing_models import AssessTimingRequest
 from cockpit.optionality_layer import build_optionality_snapshot
 from cockpit.pipeline import PIPELINE
@@ -679,6 +681,81 @@ def reopen_decision(decision_id: str, request: ReopenRequest | None = None) -> d
             expected_sequence=payload.expected_sequence,
         )
     )
+
+
+@app.post("/api/v1/decisions/{decision_id}/submit-simulated", tags=["execution-simulation"])
+def submit_simulated(decision_id: str, request: SubmitSimulatedRequest | None = None) -> dict:
+    """Submit an ACCEPTED/MODIFIED trader instruction to the internal execution
+    SIMULATOR. No real order is placed; the result is diagnostic and not executable."""
+    payload = request or SubmitSimulatedRequest()
+    try:
+        outcome = EXECUTION.submit_simulated(
+            decision_id,
+            mode=payload.execution_mode,
+            expected_status=payload.expected_status,
+            expected_sequence=payload.expected_sequence,
+            idempotency_key=payload.idempotency_key,
+            actor_id=payload.actor_id,
+        )
+    except KeyError as error:
+        raise HTTPException(status_code=404, detail=str(error))
+    except IdempotencyConflictError as error:
+        raise HTTPException(status_code=409, detail={"error": "idempotency_conflict", "message": str(error)})
+    except StaleDecisionError as error:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "error": "stale_decision",
+                "current_status": error.current_status.value,
+                "current_sequence": error.current_sequence,
+                "message": str(error),
+            },
+        )
+    except InvalidTransitionError as error:
+        raise HTTPException(status_code=409, detail={"error": "invalid_transition", "message": str(error)})
+    except (DecisionValidationError, StagePayloadError, ValueError) as error:
+        raise HTTPException(status_code=422, detail={"error": "validation_error", "message": str(error)})
+    return {
+        "outcome": outcome,
+        "decision": DECISIONS.get(decision_id),
+        "execution_mode": outcome.execution_mode,
+        "simulator_version": outcome.simulator_version,
+        "assumptions_used": list(outcome.assumptions_used),
+        "diagnostic_only": True,
+        "not_executable": True,
+        "trustworthy_for_live_trading": False,
+    }
+
+
+@app.get("/api/v1/simulated-orders", tags=["execution-simulation"])
+def list_simulated_orders() -> dict:
+    return {"orders": EXECUTION.list_orders()}
+
+
+@app.get("/api/v1/simulated-orders/{order_id}", tags=["execution-simulation"])
+def get_simulated_order(order_id: str) -> dict:
+    order = EXECUTION.get_order(order_id)
+    if order is None:
+        raise HTTPException(status_code=404, detail=f"Unknown simulated order '{order_id}'")
+    return {"order": order}
+
+
+@app.get("/api/v1/execution-outcomes", tags=["execution-simulation"])
+def list_execution_outcomes() -> dict:
+    return {"outcomes": EXECUTION.list_outcomes()}
+
+
+@app.get("/api/v1/execution-outcomes/{order_id}", tags=["execution-simulation"])
+def get_execution_outcome(order_id: str) -> dict:
+    outcome = EXECUTION.get_outcome(order_id)
+    if outcome is None:
+        raise HTTPException(status_code=404, detail=f"Unknown execution outcome '{order_id}'")
+    return {"outcome": outcome}
+
+
+@app.get("/api/v1/decisions/{decision_id}/execution", tags=["execution-simulation"])
+def get_decision_execution(decision_id: str) -> dict:
+    return {"outcome": EXECUTION.latest_outcome_for_decision(decision_id)}
 
 
 @app.get("/api/v1/cockpit", tags=["snapshots"])

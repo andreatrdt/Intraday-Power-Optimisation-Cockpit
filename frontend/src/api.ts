@@ -1,4 +1,4 @@
-import type { AcceptDecisionRequest, AssessTimingResponse, BatteryFlexibilitySnapshot, BatteryPathComparison, BatteryPathPeriodAction, BatteryPathSimulation, CockpitSnapshot, CoordinatorSimulationInput, CoordinatorSnapshot, DataFlowEvent, DecisionBatch, DecisionBatchSummary, DecisionMutationResponse, DecisionRefreshResponse, DelayDecisionRequest, FeedHealth, ForecastPositionSnapshot, ForecastRevision, HedgeTimingAssessment, HorizonMode, LineageResponse, LiveStateSnapshot, MarketSnapshot, ModifyDecisionRequest, OptimisationRun, OptionalitySnapshot, RejectDecisionRequest, ReopenDecisionRequest, SampleRegime, TradeDecision } from "./types";
+import type { AcceptDecisionRequest, AssessTimingResponse, BatteryFlexibilitySnapshot, BatteryPathComparison, BatteryPathPeriodAction, BatteryPathSimulation, CockpitSnapshot, CoordinatorSimulationInput, CoordinatorSnapshot, DataFlowEvent, DecisionBatch, DecisionBatchSummary, DecisionExecutionResponse, DecisionMutationResponse, DecisionRefreshResponse, DelayDecisionRequest, ExecutionOutcome, FeedHealth, ForecastPositionSnapshot, ForecastRevision, HedgeTimingAssessment, HorizonMode, LineageResponse, LiveStateSnapshot, MarketSnapshot, ModifyDecisionRequest, OptimisationRun, OptionalitySnapshot, RejectDecisionRequest, ReopenDecisionRequest, SampleRegime, SubmitSimulatedRequest, SubmitSimulatedResponse, TradeDecision } from "./types";
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL ?? "http://127.0.0.1:8000/api/v1";
 
@@ -215,4 +215,15 @@ export function delayDecision(decisionId: string, body: DelayDecisionRequest): P
 
 export function reopenDecision(decisionId: string, body: ReopenDecisionRequest): Promise<TradeDecision> {
   return mutateDecision(`/decisions/${decisionId}/reopen`, body);
+}
+
+// -- simulated execution (submits to the internal simulator only; never a venue) --
+
+export function submitSimulated(decisionId: string, body: SubmitSimulatedRequest): Promise<SubmitSimulatedResponse> {
+  return request<SubmitSimulatedResponse>(`/decisions/${decisionId}/submit-simulated`, { method: "POST", body: JSON.stringify(body) });
+}
+
+export async function loadDecisionExecution(decisionId: string): Promise<ExecutionOutcome | null> {
+  const response = await request<DecisionExecutionResponse>(`/decisions/${decisionId}/execution`);
+  return response.outcome;
 }

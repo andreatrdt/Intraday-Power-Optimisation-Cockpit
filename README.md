@@ -7,9 +7,12 @@ The product is a rolling UK intraday decision-support cockpit with three primary
 - **Trader Decision Queue** (`/decisions`) presents the trader-in-the-loop workflow as a ranked,
   concise decision queue with hedge-timing verdicts, priority and a per-decision evidence drawer.
   A trader can **record** their decision on each recommendation — accept, modify, reject or delay
-  (and reopen a delayed decision) — but **orders are never submitted**: every record stays
-  diagnostic-only and non-executable. See [docs/trader-decision-ui.md](docs/trader-decision-ui.md)
-  and [docs/trader-lifecycle.md](docs/trader-lifecycle.md).
+  (and reopen a delayed decision) — and then **submit an accepted/modified instruction to an
+  internal execution *simulator*** (IDEAL / REALISTIC / STRESS). No real order is ever placed:
+  every record and simulated fill stays diagnostic-only and non-executable. See
+  [docs/trader-decision-ui.md](docs/trader-decision-ui.md),
+  [docs/trader-lifecycle.md](docs/trader-lifecycle.md) and
+  [docs/execution-simulation.md](docs/execution-simulation.md).
 
 The earlier layer pages remain available under **Diagnostics** (`/diagnostics`) and consume the
 current rolling-state snapshot. The application deliberately contains no backtester, replay UI,
