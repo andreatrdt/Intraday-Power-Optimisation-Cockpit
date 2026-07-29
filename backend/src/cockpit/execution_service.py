@@ -18,6 +18,8 @@ the decision service/state machine. This module owns coordination only.
 
 from __future__ import annotations
 
+import hashlib
+import json
 from datetime import datetime, timezone
 from threading import RLock
 
@@ -42,6 +44,43 @@ class IdempotencyConflictError(Exception):
 
 def _utcnow() -> datetime:
     return datetime.now(tz=timezone.utc)
+
+
+def submit_payload_hash(
+    *,
+    decision_id: str,
+    mode: ExecutionMode,
+    expected_status: DecisionStatus | None,
+    expected_sequence: int | None,
+    actor_id: str | None,
+) -> str:
+    """Stable hash of the *full* submit request, used as the idempotency payload key.
+
+    The idempotency **record is keyed by the client-provided idempotency key**; this
+    hash is the payload signature stored alongside it. It covers every client-controlled
+    field of the request (the path decision id plus the whole ``SubmitSimulatedRequest``
+    body — mode, the optimistic-concurrency guards, and the actor), so that:
+
+    * an identical retry (same key, byte-identical request) hashes the same and returns
+      the stored outcome; and
+    * the same key sent with **any** differing field hashes differently and is rejected
+      with :class:`IdempotencyConflictError` (HTTP 409).
+
+    Execution ``mode`` is only one component here — it is deliberately *not* the key, so
+    two independent operations that merely share a mode never collide.
+    """
+    canonical = json.dumps(
+        {
+            "decision_id": decision_id,
+            "mode": mode.value,
+            "expected_status": expected_status.value if expected_status is not None else None,
+            "expected_sequence": expected_sequence,
+            "actor_id": actor_id,
+        },
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
 
 
 class _MarketView:
@@ -85,7 +124,8 @@ class ExecutionStore:
         self._order_ids: list[str] = []
         self._outcomes: dict[str, ExecutionOutcome] = {}
         self._by_decision: dict[str, list[str]] = {}
-        self._idempotency: dict[str, tuple[str, str]] = {}  # key -> (payload_key, order_id)
+        # client idempotency key -> (request-payload hash, order_id)
+        self._idempotency: dict[str, tuple[str, str]] = {}
         self._lock = RLock()
 
     def record(self, outcome: ExecutionOutcome, *, idempotency_key: str | None, payload_key: str) -> None:
@@ -162,7 +202,13 @@ class ExecutionService:
     ) -> ExecutionOutcome:
         submitted_at = now or _utcnow()
         rolling = rolling or self._resolve_rolling()
-        payload_key = f"{decision_id}:{mode.value}"
+        payload_key = submit_payload_hash(
+            decision_id=decision_id,
+            mode=mode,
+            expected_status=expected_status,
+            expected_sequence=expected_sequence,
+            actor_id=actor_id,
+        )
 
         if idempotency_key is not None:
             existing = self.store.existing_for_key(idempotency_key, payload_key)

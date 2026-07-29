@@ -317,6 +317,13 @@ def test_stored_decision_is_frozen(orchestrator):
 # ---------------------------------------------------------------------------
 
 
+# Pin the SAMPLE clock to a fixed time inside the environment's favourable
+# intraday window (roughly 00:00–13:00 UTC), so decision creation is deterministic
+# regardless of the wall-clock moment the suite runs. Matches the pinned-clock
+# convention already used by test_auction_window / test_time_driven_rolling.
+SAMPLE_AS_OF = datetime(2026, 7, 26, 8, 0, tzinfo=timezone.utc)
+
+
 def _isolated_rolling():
     """A fresh RollingService + environment + pipeline, so tests do not mutate
     or depend on the global ROLLING singleton."""
@@ -324,7 +331,7 @@ def _isolated_rolling():
     from cockpit.rolling_service import RollingService
     from cockpit.simulated_environment import SimulatedEnvironment
 
-    rolling = RollingService(DataFlowPipeline(), SimulatedEnvironment())
+    rolling = RollingService(DataFlowPipeline(), SimulatedEnvironment(clock=lambda: SAMPLE_AS_OF))
     rolling.initialise()
     return rolling
 

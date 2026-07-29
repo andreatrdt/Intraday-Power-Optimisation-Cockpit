@@ -8,6 +8,10 @@ from cockpit.decision_orchestrator import ORCHESTRATOR
 from cockpit.decision_service import DECISIONS
 from cockpit.execution_service import EXECUTION
 
+# The SAMPLE clock is pinned into its favourable intraday window by the shared
+# ``client`` fixture (see tests/conftest.py), so decision creation + submission here
+# are deterministic regardless of when the suite runs.
+
 
 @pytest.fixture(autouse=True)
 def _clean():
@@ -114,5 +118,17 @@ def test_idempotent_and_conflicting_key(client):
     assert same.status_code == 200
     assert same.json()["outcome"]["order"]["order_id"] == order_id  # idempotent
     conflict = client.post(f"/api/v1/decisions/{did}/submit-simulated", json={"execution_mode": "STRESS", "idempotency_key": "k1"})
+    assert conflict.status_code == 409
+    assert conflict.json()["detail"]["error"] == "idempotency_conflict"
+
+
+def test_same_key_different_body_field_conflicts(client):
+    """Reusing an idempotency key with the same mode but a different body field
+    (actor_id) is a payload change → 409, proving the key is a full-payload hash."""
+    did = _prepare(client)[0]
+    _accept(client, did)
+    first = client.post(f"/api/v1/decisions/{did}/submit-simulated", json={"execution_mode": "IDEAL", "idempotency_key": "k1", "actor_id": "alice"})
+    assert first.status_code == 200
+    conflict = client.post(f"/api/v1/decisions/{did}/submit-simulated", json={"execution_mode": "IDEAL", "idempotency_key": "k1", "actor_id": "bob"})
     assert conflict.status_code == 409
     assert conflict.json()["detail"]["error"] == "idempotency_conflict"

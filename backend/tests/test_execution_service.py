@@ -81,25 +81,34 @@ def test_trust_not_calculable_rejected():
 # --- Group B: full integration with an isolated rolling environment ----------
 
 
+# Pin the SAMPLE clock to a fixed time inside the environment's favourable
+# intraday window so decision creation + submission are deterministic regardless
+# of when the suite runs (the unpinned SAMPLE window empties after ~13:00 UTC).
+SAMPLE_AS_OF = datetime(2026, 7, 26, 8, 0, tzinfo=timezone.utc)
+
+
 @pytest.fixture(scope="module")
 def rolling():
     from cockpit.pipeline import DataFlowPipeline
     from cockpit.rolling_service import RollingService
     from cockpit.simulated_environment import SimulatedEnvironment
 
-    service = RollingService(DataFlowPipeline(), SimulatedEnvironment())
+    service = RollingService(DataFlowPipeline(), SimulatedEnvironment(clock=lambda: SAMPLE_AS_OF))
     service.initialise()
     service.set_regime(SampleRegime.WIND_FORECAST_MISS)
     return service
 
 
 @pytest.fixture()
-def env(rolling):
+def env(rolling, monkeypatch):
+    # Submits without an explicit ``now`` default to the pinned as-of, so they land
+    # inside the (pinned) tradeable window rather than at the real wall clock.
+    monkeypatch.setattr("cockpit.execution_service._utcnow", lambda: SAMPLE_AS_OF)
     store = DecisionStore()
     result = DecisionOrchestrator(decisions=store, rolling=rolling).refresh()
     exe = ExecutionService(decisions=store, rolling=rolling)
     assert result.created_decision_ids, "expected the isolated rolling env to create decisions"
-    return types.SimpleNamespace(store=store, exe=exe, ids=list(result.created_decision_ids), rolling=rolling)
+    return types.SimpleNamespace(store=store, exe=exe, ids=list(result.created_decision_ids), rolling=rolling, as_of=SAMPLE_AS_OF)
 
 
 def _seq(store, decision_id):
@@ -191,6 +200,35 @@ def test_conflicting_idempotency_key_raises(env):
     env.exe.submit_simulated(did, mode=ExecutionMode.IDEAL, idempotency_key="k1")
     with pytest.raises(IdempotencyConflictError):
         env.exe.submit_simulated(did, mode=ExecutionMode.REALISTIC, idempotency_key="k1")
+
+
+def test_idempotency_keyed_by_full_payload_not_just_mode(env):
+    """Same key + same mode but a *different* client-controlled field (actor_id) is a
+    payload change and must 409 — the record is keyed by a full request-payload hash,
+    not by decision+mode alone."""
+    did = env.ids[0]
+    env.store.accept(did)
+    env.exe.submit_simulated(did, mode=ExecutionMode.IDEAL, idempotency_key="k1", actor_id="alice")
+    with pytest.raises(IdempotencyConflictError):
+        env.exe.submit_simulated(did, mode=ExecutionMode.IDEAL, idempotency_key="k1", actor_id="bob")
+
+
+def test_conflicting_expected_sequence_is_payload_change(env):
+    did = env.ids[0]
+    env.store.accept(did)
+    env.exe.submit_simulated(did, mode=ExecutionMode.IDEAL, idempotency_key="k1")
+    with pytest.raises(IdempotencyConflictError):
+        env.exe.submit_simulated(did, mode=ExecutionMode.IDEAL, idempotency_key="k1", expected_sequence=99)
+
+
+def test_identical_full_payload_retry_returns_existing(env):
+    """Byte-identical retry (same key, same mode, same actor_id) is idempotent."""
+    did = env.ids[0]
+    env.store.accept(did)
+    first = env.exe.submit_simulated(did, mode=ExecutionMode.IDEAL, idempotency_key="k1", actor_id="alice")
+    second = env.exe.submit_simulated(did, mode=ExecutionMode.IDEAL, idempotency_key="k1", actor_id="alice")
+    assert first.order.order_id == second.order.order_id
+    assert len(env.exe.list_orders()) == 1
 
 
 def test_trust_flags_preserved_after_fill(env):
