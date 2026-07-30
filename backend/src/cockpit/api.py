@@ -40,6 +40,9 @@ from cockpit.settlement_service import (
     IdempotencyConflictError as SettlementIdempotencyConflictError,
     SettlementInputError,
 )
+from cockpit.replay_engine import ReplayLimitExceeded
+from cockpit.replay_models import ReplayCreateRequest
+from cockpit.replay_service import REPLAY, ReplayIdempotencyConflictError, ReplayValidationError
 from cockpit.optionality_layer import build_optionality_snapshot
 from cockpit.pipeline import PIPELINE
 from cockpit.position_layer import build_forecast_position
@@ -901,6 +904,69 @@ def get_decision_evaluation(decision_id: str) -> dict:
         "settlement": SETTLEMENT.settlement_for_decision(decision_id),
         "evaluation": EVALUATION.evaluation_for_decision(decision_id),
     }
+
+
+# --- Milestone 8: point-in-time replay -------------------------------------
+
+
+@app.get("/api/v1/replay-datasets", tags=["replay"])
+def list_replay_datasets() -> dict:
+    """Datasets available to replay. SAMPLE only today; HISTORICAL requires a genuine
+    historical dataset to be supplied (none bundled)."""
+    return {"datasets": REPLAY.available_datasets()}
+
+
+@app.post("/api/v1/replay-runs", tags=["replay"])
+def create_replay_run(request: ReplayCreateRequest | None = None) -> dict:
+    """Run one deterministic point-in-time replay. SAMPLE_REPLAY is diagnostic and is
+    never historical performance. Point-in-time integrity is enforced by the engine."""
+    payload = request or ReplayCreateRequest()
+    try:
+        result = REPLAY.create(payload)
+    except ReplayIdempotencyConflictError as error:
+        raise HTTPException(status_code=409, detail={"error": "idempotency_conflict", "message": str(error)})
+    except ReplayValidationError as error:
+        raise HTTPException(status_code=422, detail={"error": "validation_error", "message": str(error)})
+    except ReplayLimitExceeded as error:
+        raise HTTPException(status_code=422, detail={"error": "bounded_run_limit", "message": str(error)})
+    return {"run": result.run, "integrity": result.integrity, "diagnostic_only": True, "not_executable": True}
+
+
+@app.get("/api/v1/replay-runs", tags=["replay"])
+def list_replay_runs() -> dict:
+    return {"runs": REPLAY.list_runs()}
+
+
+@app.get("/api/v1/replay-runs/{replay_run_id}", tags=["replay"])
+def get_replay_run(replay_run_id: str) -> dict:
+    result = REPLAY.get(replay_run_id)
+    if result is None:
+        raise HTTPException(status_code=404, detail=f"Unknown replay run '{replay_run_id}'")
+    return {"run": result.run, "integrity": result.integrity}
+
+
+@app.get("/api/v1/replay-runs/{replay_run_id}/episodes", tags=["replay"])
+def get_replay_episodes(replay_run_id: str) -> dict:
+    episodes = REPLAY.episodes(replay_run_id)
+    if episodes is None:
+        raise HTTPException(status_code=404, detail=f"Unknown replay run '{replay_run_id}'")
+    return {"episodes": episodes}
+
+
+@app.get("/api/v1/replay-runs/{replay_run_id}/metrics", tags=["replay"])
+def get_replay_metrics(replay_run_id: str) -> dict:
+    metrics = REPLAY.metrics(replay_run_id)
+    if metrics is None:
+        raise HTTPException(status_code=404, detail=f"Unknown replay run '{replay_run_id}'")
+    return {"metrics": metrics}
+
+
+@app.get("/api/v1/replay-runs/{replay_run_id}/cumulative-pnl", tags=["replay"])
+def get_replay_cumulative_pnl(replay_run_id: str) -> dict:
+    points = REPLAY.cumulative_pnl(replay_run_id)
+    if points is None:
+        raise HTTPException(status_code=404, detail=f"Unknown replay run '{replay_run_id}'")
+    return {"points": points}
 
 
 @app.get("/api/v1/cockpit", tags=["snapshots"])

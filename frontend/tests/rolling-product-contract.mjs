@@ -20,12 +20,14 @@ const trust = read("TrustStatusStrip.tsx");
 assert.match(route, /\/live.*<LiveStatePage/);
 assert.match(route, /\/optimisation.*<OptimisationPage/);
 assert.match(route, /\/diagnostics.*<DiagnosticsPage/);
-assert.equal((nav.match(/<a /g) ?? []).length, 4, "primary navigation must contain exactly four links");
+assert.equal((nav.match(/<a /g) ?? []).length, 5, "primary navigation must contain exactly five links");
 assert.match(nav, />Live State</);
 assert.match(nav, />Optimisation</);
 assert.match(nav, />Decisions</);
+assert.match(nav, />Replay</);
 assert.match(nav, />Diagnostics</);
 assert.match(route, /\/decisions.*<DecisionQueuePage/);
+assert.match(route, /\/replay.*<ReplayPage/);
 
 for (const label of ["Data Flow", "Forecast & Position", "Market & Liquidity", "Battery Flexibility", "Battery Path", "Optionality"]) assert.match(diagnostics, new RegExp(label.replace("&", "&")));
 assert.match(diagnostics, /consume the current rolling-state snapshot/);

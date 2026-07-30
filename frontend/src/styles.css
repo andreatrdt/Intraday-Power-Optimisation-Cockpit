@@ -723,3 +723,48 @@ button.ghost { background: transparent; border: 1px solid var(--border); border-
 .cc-outcome { display: flex; flex-direction: column; gap: 4px; }
 .cc-pnl { font-family: var(--mono, "DM Mono", monospace); font-size: 12px; font-variant-numeric: tabular-nums; }
 .cc-pending { font-size: 12px; color: var(--muted); }
+
+/* --- Milestone 8: point-in-time replay ------------------------------------ */
+.replay-config { display: flex; flex-direction: column; gap: 10px; }
+.replay-config-fields { display: flex; flex-wrap: wrap; gap: 12px; align-items: end; }
+.replay-config-fields label { display: flex; flex-direction: column; gap: 3px; font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: .05em; }
+.replay-config-fields select { padding: 6px 8px; border: 1px solid var(--border); border-radius: 6px; background: var(--panel); font-size: 13px; min-width: 150px; }
+.replay-badges { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
+.replay-disclaimer { font-size: 12px; color: var(--amber); margin: 0; }
+.replay-empty p { font-size: 13px; color: var(--muted); }
+.replay-run-meta, .replay-summary { display: flex; flex-wrap: wrap; gap: 8px 26px; }
+.replay-run-meta > div, .replay-summary > div { display: flex; flex-direction: column; gap: 3px; }
+.replay-run-meta span, .replay-summary span { font-size: 9.5px; color: var(--muted); text-transform: uppercase; letter-spacing: .06em; }
+.replay-run-meta strong, .replay-summary strong { font-size: 13px; }
+.sample-size-note { font-size: 11.5px; color: var(--muted); margin: 2px 4px 0; }
+.replay-chart .zero-line { stroke: var(--border); stroke-dasharray: 3 3; }
+.cumulative-chart { width: 100%; height: 220px; }
+.cumulative-chart path { stroke-width: 2; }
+.series-trader { stroke: var(--green); }
+.series-model { stroke: var(--cyan); }
+.series-no-action { stroke: var(--muted); stroke-width: 1.5 !important; }
+.series-perfect { stroke: var(--violet); }
+.chart-legend { display: flex; flex-wrap: wrap; gap: 14px; margin-top: 8px; font-size: 11px; }
+.chart-legend .lg::before { content: ""; display: inline-block; width: 12px; height: 3px; margin-right: 5px; vertical-align: middle; }
+.lg-trader::before { background: var(--green); }
+.lg-model::before { background: var(--cyan); }
+.lg-no-action::before { background: var(--muted); }
+.lg-perfect::before { background: var(--violet); }
+.lg-perfect { color: var(--violet); }
+.distribution-counts { display: flex; flex-wrap: wrap; gap: 8px 26px; }
+.distribution-counts > div { display: flex; flex-direction: column; gap: 3px; }
+.distribution-counts span { font-size: 9.5px; color: var(--muted); text-transform: uppercase; letter-spacing: .06em; }
+.distribution-counts strong { font-size: 14px; }
+.distribution-counts .win strong { color: var(--green); }
+.distribution-counts .loss strong { color: var(--red); }
+.segment-table, .episode-table { width: 100%; border-collapse: collapse; font-size: 12px; margin-top: 8px; }
+.segment-table th, .segment-table td, .episode-table th, .episode-table td { text-align: right; padding: 5px 8px; border-bottom: 1px solid var(--border); }
+.segment-table th:first-child, .segment-table td:first-child, .episode-table th:first-child, .episode-table td:first-child { text-align: left; }
+.episode-table tbody tr { cursor: pointer; }
+.episode-table tbody tr:hover, .episode-table tbody tr:focus { background: var(--panel-2); outline: none; }
+.skip-reason { color: var(--amber); font-size: 11px; }
+.replay-segmentation select { padding: 5px 8px; border: 1px solid var(--border); border-radius: 6px; background: var(--panel); font-size: 12.5px; }
+.integrity-ok { color: var(--green); font-weight: 700; font-size: 12px; }
+.integrity-bad { color: var(--red); font-weight: 700; font-size: 12px; }
+.capture-note { font-size: 11.5px; color: var(--muted); margin: 4px 0; }
+.replay-episode-drawer .hindsight-banner { font-size: 11.5px; color: var(--violet); }

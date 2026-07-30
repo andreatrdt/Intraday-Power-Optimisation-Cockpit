@@ -12,12 +12,23 @@ The product is a rolling UK intraday decision-support cockpit with three primary
   every record and simulated fill stays diagnostic-only and non-executable. See
   [docs/trader-decision-ui.md](docs/trader-decision-ui.md),
   [docs/trader-lifecycle.md](docs/trader-lifecycle.md) and
-  [docs/execution-simulation.md](docs/execution-simulation.md).
+  [docs/execution-simulation.md](docs/execution-simulation.md). Once a delivery period has
+  completed, a decision also carries a read-only **Outcome & Evaluation** section — realised
+  imbalance, settlement cash flow, incremental P&L versus no-action, benchmark comparison and a
+  cautious quality label.
+- **Point-in-Time Replay** (`/replay`) re-runs the *same* decision workflow across many SAMPLE
+  episodes without look-ahead, then aggregates diagnostic performance (incremental P&L vs no
+  action, hit rate, drawdown, regret, perfect-foresight capture). Every read is gated by a
+  point-in-time look-ahead guard, so a valid run shows zero look-ahead violations. **SAMPLE replay
+  is a diagnostic — it is not historical or live trading performance and is never labelled
+  historical.** See [docs/replay.md](docs/replay.md).
 
 The earlier layer pages remain available under **Diagnostics** (`/diagnostics`) and consume the
-current rolling-state snapshot. The application deliberately contains no backtester, replay UI,
-strategy-performance page, order submission, or real battery control. Trader decisions can be
-**recorded** (accept / modify / reject / delay) but are never submitted as orders.
+current rolling-state snapshot. The application contains **no live order submission, no real
+battery control, and makes no claim of historical or live trading performance**. The replay page is
+a deterministic point-in-time *diagnostic*, not a backtester that claims strategy returns; trader
+decisions can be **recorded** (accept / modify / reject / delay) and settled/evaluated against
+SAMPLE realised data, but nothing is ever submitted as a real order.
 
 The rolling product now provides:
 
@@ -152,3 +163,6 @@ See [docs/coordinator.md](docs/coordinator.md) for the Milestone 1G scoring,
 sign conventions, readiness and API contract.
 See [docs/rolling-optimisation.md](docs/rolling-optimisation.md) for the rolling state lifecycle,
 full action-space formulation, backend-time SAMPLE reconciliation and product APIs.
+See [docs/replay.md](docs/replay.md) for the Milestone 8 point-in-time replay architecture,
+look-ahead guard, dataset contract, trader policies, event schedule, metric definitions,
+benchmark/perfect-foresight treatment, SAMPLE-vs-HISTORICAL boundaries and known limitations.

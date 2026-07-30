@@ -17,7 +17,7 @@ assert.match(route, /startsWith\("\/decisions"\)\s*\?\s*<DecisionQueuePage/);
 assert.match(route, /startsWith\("\/live"\)/);
 assert.match(route, /startsWith\("\/optimisation"\)/);
 assert.match(route, /startsWith\("\/diagnostics"\)/);
-assert.match(nav, /"live" \| "optimisation" \| "decisions" \| "diagnostics"/);
+assert.match(nav, /"live" \| "optimisation" \| "decisions" \| "replay" \| "diagnostics"/);
 assert.match(nav, /href="\/decisions">Decisions</);
 
 // A. Header — title, run/source/quality, actions and trust badges.

@@ -1,4 +1,4 @@
-import type { AcceptDecisionRequest, AssessTimingResponse, BatteryFlexibilitySnapshot, BatteryPathComparison, BatteryPathPeriodAction, BatteryPathSimulation, CockpitSnapshot, CoordinatorSimulationInput, CoordinatorSnapshot, DataFlowEvent, DecisionBatch, DecisionBatchSummary, DecisionEvaluationResult, DecisionExecutionResponse, DecisionMutationResponse, DecisionOutcomeBundle, DecisionRefreshResponse, DelayDecisionRequest, DeliverResponse, EvaluateResponse, ExecutionOutcome, FeedHealth, ForecastPositionSnapshot, ForecastRevision, HedgeTimingAssessment, HorizonMode, LifecycleActionRequest, LineageResponse, LiveStateSnapshot, MarketSnapshot, ModifyDecisionRequest, OptimisationRun, OptionalitySnapshot, ProcessCompletedResponse, RejectDecisionRequest, ReopenDecisionRequest, SampleRegime, SettleResponse, SubmitSimulatedRequest, SubmitSimulatedResponse, TradeDecision } from "./types";
+import type { AcceptDecisionRequest, AssessTimingResponse, BatteryFlexibilitySnapshot, BatteryPathComparison, BatteryPathPeriodAction, BatteryPathSimulation, CockpitSnapshot, CoordinatorSimulationInput, CoordinatorSnapshot, CumulativePnlPoint, DataFlowEvent, DecisionBatch, DecisionBatchSummary, DecisionEvaluationResult, DecisionExecutionResponse, DecisionMutationResponse, DecisionOutcomeBundle, DecisionRefreshResponse, DelayDecisionRequest, DeliverResponse, EvaluateResponse, ExecutionOutcome, FeedHealth, ForecastPositionSnapshot, ForecastRevision, HedgeTimingAssessment, HorizonMode, LifecycleActionRequest, LineageResponse, LiveStateSnapshot, MarketSnapshot, ModifyDecisionRequest, OptimisationRun, OptionalitySnapshot, ProcessCompletedResponse, RejectDecisionRequest, ReopenDecisionRequest, ReplayCreateRequest, ReplayCreateResponse, ReplayDatasetInfo, ReplayEpisodeResult, ReplayMetrics, ReplayRun, SampleRegime, SettleResponse, SubmitSimulatedRequest, SubmitSimulatedResponse, TradeDecision } from "./types";
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL ?? "http://127.0.0.1:8000/api/v1";
 
@@ -253,4 +253,35 @@ export async function loadDecisionOutcome(decisionId: string): Promise<DecisionO
 export async function loadEvaluations(): Promise<DecisionEvaluationResult[]> {
   const response = await request<{ evaluations: DecisionEvaluationResult[] }>("/evaluations");
   return response.evaluations;
+}
+
+// -- point-in-time replay (Milestone 8; SAMPLE replay is not historical performance) --
+
+export async function loadReplayDatasets(): Promise<ReplayDatasetInfo[]> {
+  const response = await request<{ datasets: ReplayDatasetInfo[] }>("/replay-datasets");
+  return response.datasets;
+}
+
+export function createReplayRun(body: ReplayCreateRequest): Promise<ReplayCreateResponse> {
+  return request<ReplayCreateResponse>("/replay-runs", { method: "POST", body: JSON.stringify(body) });
+}
+
+export async function loadReplayRuns(): Promise<ReplayRun[]> {
+  const response = await request<{ runs: ReplayRun[] }>("/replay-runs");
+  return response.runs;
+}
+
+export async function loadReplayEpisodes(replayRunId: string): Promise<ReplayEpisodeResult[]> {
+  const response = await request<{ episodes: ReplayEpisodeResult[] }>(`/replay-runs/${replayRunId}/episodes`);
+  return response.episodes;
+}
+
+export async function loadReplayMetrics(replayRunId: string): Promise<ReplayMetrics> {
+  const response = await request<{ metrics: ReplayMetrics }>(`/replay-runs/${replayRunId}/metrics`);
+  return response.metrics;
+}
+
+export async function loadReplayCumulativePnl(replayRunId: string): Promise<CumulativePnlPoint[]> {
+  const response = await request<{ points: CumulativePnlPoint[] }>(`/replay-runs/${replayRunId}/cumulative-pnl`);
+  return response.points;
 }

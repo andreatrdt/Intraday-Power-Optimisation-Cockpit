@@ -1928,3 +1928,230 @@ export interface SettlementErrorDetail {
   current_status?: DecisionStatus;
   current_sequence?: number;
 }
+
+// -- Milestone 8: point-in-time replay ---------------------------------------
+
+export type ReplayMode = "SAMPLE_REPLAY" | "HISTORICAL_REPLAY";
+export type TraderPolicy = "MODEL_FOLLOW" | "NO_ACTION" | "TIMING_POLICY";
+export type ReplayStatus = "COMPLETED" | "PARTIAL" | "FAILED";
+export type IntegrityStatus = "OK" | "VIOLATIONS_DETECTED" | "DATASET_INVALID";
+export type LookAheadKind =
+  | "FUTURE_PUBLICATION" | "REALISED_BEFORE_DELIVERY" | "SETTLEMENT_BEFORE_AVAILABLE"
+  | "FUTURE_MARKET_SNAPSHOT" | "OUTSIDE_REPLAY_CLOCK" | "HINDSIGHT_IN_DECISION";
+export type LifecyclePath = "FILLED" | "PARTIALLY_FILLED" | "EXPIRED" | "REJECTED" | "NO_TRADE";
+export type EpisodeSkipReason =
+  | "NO_MATERIAL_REVISION" | "GATE_CLOSURE_PASSED" | "NOT_TRADEABLE" | "NO_OPTIMISER_VIEW"
+  | "MISSING_REALISED_GENERATION" | "MISSING_SETTLEMENT_PRICES" | "POLICY_NO_TRADE" | "DECISION_NOT_CREATED";
+
+export interface ReplayDatasetInfo {
+  dataset_id: string;
+  run_mode: ReplayMode;
+  source_mode: SourceMode;
+  quality: Quality;
+}
+
+export interface ReplayRun {
+  replay_run_id: string;
+  created_at: string;
+  dataset_id: string;
+  run_mode: ReplayMode;
+  source_mode: SourceMode;
+  quality: Quality;
+  replay_start: string;
+  replay_end: string;
+  trader_policy: TraderPolicy;
+  execution_mode: ExecutionMode;
+  timing_policy_version: string;
+  simulator_version: string;
+  materiality_config_ref: string;
+  assumptions: string[];
+  decision_count: number;
+  evaluated_count: number;
+  submitted_count: number;
+  skipped_count: number;
+  lookahead_violation_count: number;
+  max_periods: number | null;
+  status: ReplayStatus;
+  integrity_status: IntegrityStatus;
+  diagnostic_only: boolean;
+  not_executable: boolean;
+  trustworthy_for_live_trading: boolean;
+  replay_engine_version: string;
+}
+
+export interface ReplayEpisodeResult {
+  episode_id: string;
+  replay_run_id: string;
+  settlement_period: number;
+  delivery_period: string;
+  decision_ids: string[];
+  revision_ids: string[];
+  timing_assessment_ids: string[];
+  simulated_order_ids: string[];
+  delivery_id: string | null;
+  settlement_id: string | null;
+  evaluation_id: string | null;
+  lifecycle_path: LifecyclePath | null;
+  skip_reason: EpisodeSkipReason | null;
+  realised_incremental_pnl_gbp: number | null;
+  total_realised_cashflow_gbp: number | null;
+  no_action_pnl_gbp: number | null;
+  model_pnl_gbp: number | null;
+  trader_pnl_gbp: number | null;
+  perfect_foresight_pnl_gbp: number | null;
+  regret_vs_model_gbp: number | null;
+  regret_vs_perfect_foresight_gbp: number | null;
+  executed_buy_mwh: number;
+  executed_sell_mwh: number;
+  unfilled_mwh: number;
+  average_execution_price_gbp_per_mwh: number | null;
+  fees_gbp: number;
+  slippage_gbp: number;
+  levels_consumed: number;
+  timing_verdict: string | null;
+  timing_priority: string | null;
+  recommended_action: string | null;
+  forecast_horizon_minutes: number | null;
+  trader_policy_action: string | null;
+  warnings: string[];
+  lineage_ids: string[];
+  diagnostic_only: boolean;
+  not_executable: boolean;
+}
+
+export interface CoverageMetrics {
+  total_eligible_periods: number;
+  periods_with_valid_revisions: number;
+  material_decision_count: number;
+  submitted_decision_count: number;
+  filled_count: number;
+  partial_filled_count: number;
+  expired_count: number;
+  evaluated_count: number;
+  skipped_count: number;
+  action_rate: number | null;
+}
+export interface PnlMetrics {
+  sample_size: number;
+  total_incremental_pnl_gbp: number;
+  mean_incremental_pnl_gbp: number | null;
+  median_incremental_pnl_gbp: number | null;
+  stdev_incremental_pnl_gbp: number | null;
+  min_incremental_pnl_gbp: number | null;
+  max_incremental_pnl_gbp: number | null;
+  total_realised_cashflow_gbp: number;
+  total_fees_gbp: number;
+  total_slippage_gbp: number;
+}
+export interface HitRegretMetrics {
+  sample_size: number;
+  pct_outperforming_no_action: number | null;
+  pct_underperforming_no_action: number | null;
+  pct_in_line: number | null;
+  mean_regret_vs_model_gbp: number | null;
+  mean_regret_vs_perfect_foresight_gbp: number | null;
+  perfect_foresight_capture_ratio: number | null;
+  capture_ratio_note: string;
+}
+export interface RiskMetrics {
+  sample_size: number;
+  max_drawdown_gbp: number | null;
+  worst_single_period_loss_gbp: number | null;
+  downside_deviation_gbp: number | null;
+  fifth_percentile_gbp: number | null;
+  loss_frequency: number | null;
+}
+export interface ReplayExecutionMetrics {
+  submitted_count: number;
+  fill_rate: number | null;
+  partial_fill_rate: number | null;
+  average_slippage_gbp: number | null;
+  average_fee_gbp: number | null;
+  average_levels_consumed: number | null;
+  volume_weighted_execution_price_gbp_per_mwh: number | null;
+}
+export interface SegmentMetric {
+  dimension: string;
+  segment: string;
+  episode_count: number;
+  evaluated_count: number;
+  total_incremental_pnl_gbp: number;
+  mean_incremental_pnl_gbp: number | null;
+}
+export interface TimingMetrics {
+  hedge_now_count: number;
+  partial_hedge_now_count: number;
+  wait_count: number;
+  no_action_count: number;
+  mean_incremental_pnl_by_verdict: SegmentMetric[];
+  mean_incremental_pnl_by_priority: SegmentMetric[];
+}
+export interface ReplayMetrics {
+  replay_run_id: string;
+  run_mode: ReplayMode;
+  sample_size: number;
+  sample_size_note: string;
+  coverage: CoverageMetrics;
+  pnl: PnlMetrics;
+  hit_regret: HitRegretMetrics;
+  risk: RiskMetrics;
+  execution: ReplayExecutionMetrics;
+  timing: TimingMetrics;
+  segments: SegmentMetric[];
+  diagnostic_only: boolean;
+  not_executable: boolean;
+}
+
+export interface CumulativePnlPoint {
+  index: number;
+  settlement_period: number;
+  episode_id: string;
+  incremental_pnl_gbp: number;
+  cumulative_trader_gbp: number;
+  cumulative_model_gbp: number;
+  cumulative_no_action_gbp: number;
+  cumulative_perfect_foresight_gbp: number;
+}
+
+export interface LookAheadViolationRecord {
+  kind: LookAheadKind;
+  replay_clock: string;
+  delivery_period: string | null;
+  requested_field: string;
+  detail: string;
+}
+export interface IntegrityReport {
+  status: IntegrityStatus;
+  lookahead_violation_count: number;
+  violations: LookAheadViolationRecord[];
+  skipped_data_reasons: string[];
+  missing_lineage_periods: string[];
+  unavailable_fields: string[];
+  dataset_validation_status: IntegrityStatus;
+}
+
+export interface ReplayCreateRequest {
+  dataset_id?: string | null;
+  run_mode: ReplayMode;
+  replay_start?: string | null;
+  replay_end?: string | null;
+  trader_policy: TraderPolicy;
+  execution_mode: ExecutionMode;
+  timing_policy_version?: string | null;
+  simulator_version?: string | null;
+  materiality_config_ref?: string | null;
+  max_periods?: number | null;
+  idempotency_key?: string | null;
+}
+export interface ReplayCreateResponse {
+  run: ReplayRun;
+  integrity: IntegrityReport;
+  diagnostic_only: boolean;
+  not_executable: boolean;
+}
+
+/** 409 (idempotency) / 422 (validation, bounded-run) replay error detail. */
+export interface ReplayErrorDetail {
+  error: "idempotency_conflict" | "validation_error" | "bounded_run_limit";
+  message: string;
+}
